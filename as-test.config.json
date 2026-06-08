@@ -1,0 +1,28 @@
+{
+    "$schema": "./node_modules/as-test/as-test.config.schema.json",
+    "input": ["./assembly/__tests__/*.spec.ts"],
+    "outDir": "./.as-test/build",
+    "logs": "./.as-test/logs",
+    "coverageDir": "./.as-test/coverage",
+    "snapshotDir": "./.as-test/snapshots",
+    "config": "./asconfig.json",
+    "buildOptions": {
+        "target": "wasi"
+    },
+    "runOptions": {
+        "runtime": {
+            "cmd": "node ./.as-test/runners/default.wasi.js <file>"
+        }
+    },
+    "modes": {
+        "swar": {
+            "features": ["simd"],
+            "buildOptions": {
+                "args": ["--use ZMIJ_SIMD=0"]
+            }
+        },
+        "simd": {
+            "features": ["simd"]
+        }
+    }
+}

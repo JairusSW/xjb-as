@@ -1,0 +1,10 @@
+This repository includes material derived from xjb:
+https://github.com/xjb714/xjb
+
+Vendored snapshot:
+- `vendor/xjb/81af30358003c98eda6429fbff0d826e0c259302/`
+- Includes `xjb.pdf` plus the upstream source files used to port the `f64` core.
+
+Derived implementation:
+- `assembly/dtoa.ts` contains an AssemblyScript port of the xjb64 v2 `f64`
+  shortest-decimal core adapted to the existing ECMAScript formatter surface.

@@ -1,0 +1,65 @@
+{
+    "name": "xjb-as",
+    "version": "0.1.0",
+    "description": "ECMAScript-compatible f64/f32 to string (dtoa/ftoa) for AssemblyScript, xjb64 v2 f64 core",
+    "type": "module",
+    "license": "(MIT AND Apache-2.0)",
+    "author": "Jairus Tanaka <me@jairus.dev>",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/JairusSW/xjb-as.git"
+    },
+    "keywords": [
+        "assemblyscript",
+        "dtoa",
+        "ftoa",
+        "float",
+        "double",
+        "schubfach",
+        "zmij",
+        "tostring",
+        "wasm",
+        "dragonbox"
+    ],
+    "types": "assembly/index.ts",
+    "ascMain": "assembly/index.ts",
+    "files": [
+        "index.ts",
+        "assembly/index.ts",
+        "assembly/dtoa.ts",
+        "assembly/tsconfig.json",
+        "README.md",
+        "LICENSE",
+        "LICENSE.Apache-2.0",
+        "NOTICE"
+    ],
+    "scripts": {
+        "test": "ast test",
+        "gen-spec": "node scripts/dtoa/gen-spec.mjs",
+        "verify:build": "asc assembly/dtoa.ts -o build/dtoa.wasm -O3 --converge --noAssert --uncheckedBehavior always --enable simd --enable bulk-memory --enable sign-extension --runtime stub",
+        "verify": "npm run verify:build && node scripts/dtoa/verify.mjs",
+        "fuzz": "npm run verify:build && node scripts/dtoa/fuzz.mjs",
+        "fuzz:quick": "npm run verify:build && node scripts/dtoa/fuzz.mjs --runs 500000",
+        "bench": "bash ./scripts/run-bench.sh",
+        "bench:list": "bash ./scripts/run-bench.sh --list",
+        "bench:summary": "node ./scripts/bench-summary.mjs",
+        "charts:build": "bash ./scripts/build-charts.sh",
+        "charts:publish": "bash ./scripts/publish-charts.sh",
+        "charts:list": "bash ./scripts/build-charts.sh --list",
+        "charts:serve": "bunx serve ./charts",
+        "charts": "bun run charts:build && bun run charts:serve",
+        "report": "bun run bench && bun run charts:build",
+        "clean": "rm -rf build charts .as-test",
+        "clean:bench": "rm -rf build/logs charts"
+    },
+    "devDependencies": {
+        "@assemblyscript/wasi-shim": "latest",
+        "@types/node": "latest",
+        "as-heap-analyzer": "latest",
+        "as-test": "latest",
+        "assemblyscript": "latest",
+        "chart.js": "latest",
+        "chartjs-node-canvas": "latest",
+        "chartjs-plugin-datalabels": "latest"
+    }
+}

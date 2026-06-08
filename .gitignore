@@ -1,0 +1,20 @@
+node_modules/
+
+# Generated test output (keep the runner + snapshots; drop build/logs/coverage)
+.as-test/*
+!.as-test/runners/
+!.as-test/snapshots/
+
+# Generated benchmark and wasm output
+build/
+
+# Generated charts output (force-add specific PNGs with `git add -f` if needed)
+/charts/
+!scripts/charts/
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor noise
+.DS_Store

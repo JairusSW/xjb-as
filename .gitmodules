@@ -1,0 +1,3 @@
+[submodule "vendor/zmij-as"]
+	path = vendor/zmij-as
+	url = git@github.com:JairusSW/zmij-as
