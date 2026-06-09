@@ -93,13 +93,13 @@ logical end by up to one 8-char block.
 ## Performance
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-comp-f64-wavm.png" alt="dtoa (f64) latency vs the AssemblyScript stdlib, by input complexity">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-comp-f64-wavm.png" alt="dtoa (f64) latency vs the AssemblyScript stdlib, by input complexity">
 </p>
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-comp-f32-wavm.png" alt="ftoa (f32) latency vs the AssemblyScript stdlib, by input complexity">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-comp-f32-wavm.png" alt="ftoa (f32) latency vs the AssemblyScript stdlib, by input complexity">
 </p>
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-stages-f64-wavm.png" alt="dtoa (f64) per-stage latency breakdown">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-stages-f64-wavm.png" alt="dtoa (f64) per-stage latency breakdown">
 </p>
 
 Charts are published per release to the `docs` branch via `npm run charts:publish`
