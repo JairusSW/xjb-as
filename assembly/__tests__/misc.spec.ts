@@ -1,5 +1,7 @@
 import { describe, expect } from "as-test";
-import { dtoa, ftoa, dtoa_buffered, ftoa_buffered, toDecimalDouble, gSig } from "../dtoa";
+import { dtoa, dtoa_buffered, toDecimalDouble } from "../dtoa";
+import { ftoa, ftoa_buffered } from "../ftoa";
+import { gSig } from "../xjb";
 
 const BUF = new ArrayBuffer(128);
 const BUF_PTR = changetype<usize>(BUF);

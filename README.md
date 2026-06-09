@@ -1,6 +1,6 @@
-<h1 align="center"><pre>╔══╗ ╔╗╔╗ ╦  ╦    ╔═╗ ╔═╗
- ╔╝  ║╚╝║ ║  ║ ══ ╠═╣ ╚═╗
-╚══╝ ╩  ╩ ╩ ╚╝    ╩ ╩ ╚═╝</pre></h1>
+<h1 align="center"><pre>╦ ╦  ╦ ╔╗     ╔═╗ ╔═╗
+ ╬   ║ ╠╩╗ ══ ╠═╣ ╚═╗
+╝ ╚ ╚╝ ╚═╝    ╩ ╩ ╚═╝</pre></h1>
 
 <p align="center">
 The fastest <strong>ECMAScript-<code>Number.toString</code>-compatible</strong>
@@ -28,10 +28,10 @@ The fastest <strong>ECMAScript-<code>Number.toString</code>-compatible</strong>
 ## Installation
 
 ```bash
-npm install zmij-as
+npm install xjb-as
 ```
 
-`zmij-as` is plain exported functions - no compiler transform required. The digit
+`xjb-as` is plain exported functions - no compiler transform required. The digit
 kernel uses [SIMD](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) when available
 and falls back to scalar [SWAR](https://en.wikipedia.org/wiki/SWAR) otherwise.
 
@@ -54,7 +54,7 @@ Or in your `asconfig.json`:
 ## Usage
 
 ```typescript
-import { dtoa, dtoa_buffered, ftoa, ftoa_buffered } from "zmij-as";
+import { dtoa, dtoa_buffered, ftoa, ftoa_buffered } from "xjb-as";
 
 dtoa(3.14159);     // "3.14159"
 dtoa(1e21);        // "1e+21"
@@ -93,13 +93,13 @@ logical end by up to one 8-char block.
 ## Performance
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/zmij-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-comp-f64-wavm.png" alt="dtoa (f64) latency vs the AssemblyScript stdlib, by input complexity">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-comp-f64-wavm.png" alt="dtoa (f64) latency vs the AssemblyScript stdlib, by input complexity">
 </p>
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/zmij-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-comp-f32-wavm.png" alt="ftoa (f32) latency vs the AssemblyScript stdlib, by input complexity">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-comp-f32-wavm.png" alt="ftoa (f32) latency vs the AssemblyScript stdlib, by input complexity">
 </p>
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/zmij-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-stages-f64-wavm.png" alt="dtoa (f64) per-stage latency breakdown">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-87958e9/dtoa-stages-f64-wavm.png" alt="dtoa (f64) per-stage latency breakdown">
 </p>
 
 Charts are published per release to the `docs` branch via `npm run charts:publish`
@@ -133,18 +133,40 @@ npm run charts:build -- --v8 --wavm
 npm run charts:serve
 ```
 
+## Binary size
+
+Float→string code is mostly its pow10 lookup table. Build with `-Oz` (or
+`-Os`) and the f64 table shrinks from ~9.9 KB to ~5 KB: a Dragonbox-style
+**compressed anchor cache** reconstructed at load time (one multiply-by-5 per
+in-between power), selected automatically via `ASC_SHRINK_LEVEL` and **bit-identical**
+to the full table. The f32 path is a compact, self-contained core (~1.2 KB
+hi-only table) — an f32-only build never pulls in the f64 machinery.
+
+| build (`--runtime stub`, SIMD) |   `-O3` |   `-Oz` |
+| ------------------------------ | ------: | ------: |
+| `dtoa` (f64)                   | 13.4 KB |  9.0 KB |
+| `ftoa` (f32)                   |  2.9 KB |  2.9 KB |
+| both                           | 21.9 KB | 17.9 KB |
+
 ## Architecture
 
-The `dtoa` path is a port of the upstream `xjb64` v2 shortest-decimal core and
-the `ftoa` path remains on the prior Żmij/xjb-derived core; the formatter lays out digits per
-the [ECMA-262 `Number::toString` decision tree](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-numeric-types-number-tostring) and stores UTF-16 directly.
+Three modules under `assembly/`:
+
+- **`dtoa.ts`** (f64) — ports the upstream `xjb64` v2 shortest-decimal core.
+- **`ftoa.ts`** (f32) — a self-contained port of xjb's compact
+  single-hi-multiply f32 core (24-bit significand ⇒ a hi-only table and a
+  narrow 64×24 product).
+- **`xjb.ts`** — the shared f64 engine `dtoa.ts` builds on: 128-bit math, the
+  pow10 tables + loads (full, or the compressed anchor cache at `-Oz`), the
+  SIMD/SWAR digit kernel, and the UTF-16 layout writers.
+
+The formatter lays out digits per the [ECMA-262 `Number::toString` decision tree](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-numeric-types-number-tostring) and stores UTF-16 directly.
 
 ## Credits
 
 The shortest-decimal **digits** are identical to Ryū/Dragonbox (shortest,
 round-to-nearest-even) - exactly what ECMA-262 mandates; only the surface
-formatting differs. This repo also vendors the xjb paper and source snapshot used
-for the `f64` port in `vendor/xjb/81af30358003c98eda6429fbff0d826e0c259302/`.
+formatting differs.
 
 ## License
 
@@ -152,9 +174,9 @@ for the `f64` port in `vendor/xjb/81af30358003c98eda6429fbff0d826e0c259302/`.
 
 ## Contact
 
-Please send all issues to [GitHub Issues](https://github.com/JairusSW/zmij-as/issues) and to converse, please send me an email at [me@jairus.dev](mailto:me@jairus.dev)
+Please send all issues to [GitHub Issues](https://github.com/JairusSW/xjb-as/issues) and to converse, please send me an email at [me@jairus.dev](mailto:me@jairus.dev)
 
 - **Email:** Send me inquiries, questions, or requests at [me@jairus.dev](mailto:me@jairus.dev)
-- **GitHub:** Visit the official GitHub repository [Here](https://github.com/JairusSW/zmij-as)
+- **GitHub:** Visit the official GitHub repository [Here](https://github.com/JairusSW/xjb-as)
 - **Website:** Visit my official website at [jairus.dev](https://jairus.dev/)
 - **Discord:** Contact me at [My Discord](https://discord.com/users/600700584038760448) or on the [AssemblyScript Discord Server](https://discord.gg/assemblyscript/)

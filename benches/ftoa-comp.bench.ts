@@ -1,13 +1,13 @@
-// ftoa (f32) latency vs the AssemblyScript stdlib (Grisu2), by input complexity.
-// f32 counterpart of dtoa-comp.bench.ts; stems are ftoa-comp-*.
+// ftoa (f32) latency: xjb full table, xjb compact hi-only table, zmij, stdlib.
+// Eight series per bucket; results in build/logs/as/<runtime>/.
 
-import { bench, dumpToFile, blackbox } from "./lib/bench";
-import { ftoa, ftoa_buffered } from "../ftoa";
-import { ftoa as zmijFtoa, ftoa_buffered as zmijFtoaBuffered } from "../../vendor/zmij-as/assembly/dtoa";
+import { bench, dumpToFile, blackbox } from "../assembly/__benches__/lib/bench";
+import { ftoa, ftoa_buffered } from "../assembly/ftoa";
+import { ftoa as zmijFtoa, ftoa_buffered as zmijFtoaBuffered } from "../vendor/zmij-as/assembly/dtoa";
 import {
   dtoa as stdlibDtoa,
   dtoa_buffered as stdlibDtoaBuffered,
-} from "util/number";
+} from "~lib/util/number";
 
 const U16 = memory.data(128);
 const OPS: u64 = 100_000;

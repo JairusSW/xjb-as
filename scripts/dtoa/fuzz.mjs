@@ -46,33 +46,50 @@ const doF32 = !hasFlag("--f64-only");
 const crashDir = new URL("../../.as-test/crashes/", import.meta.url);
 
 // ---- wasm -----------------------------------------------------------------
-const wasmPath = new URL("../../build/dtoa.wasm", import.meta.url);
-let bytes;
-try {
-    bytes = readFileSync(wasmPath);
-} catch {
-    console.error(
-        "missing build/dtoa.wasm - run `npm run verify:build` first (npm run fuzz does this).",
-    );
-    process.exit(2);
-}
-const { instance } = await WebAssembly.instantiate(bytes, {
-    env: {
-        abort() {
-            throw new Error("wasm abort");
+// Build targets, each its own module + memory:
+//   dtoa       f64, full pow10 table       (build/dtoa.wasm)
+//   dtoa-comp  f64, compressed table       (build/dtoa-comp.wasm, --shrinkLevel 1)
+//   ftoa       f32, compact hi-only core   (build/ftoa.wasm)
+async function loadModule(rel) {
+    let bytes;
+    try {
+        bytes = readFileSync(new URL(`../../build/${rel}`, import.meta.url));
+    } catch {
+        console.error(
+            `missing build/${rel} - run \`npm run verify:build\` first (npm run fuzz does this).`,
+        );
+        process.exit(2);
+    }
+    const { instance } = await WebAssembly.instantiate(bytes, {
+        env: {
+            abort() {
+                throw new Error("wasm abort");
+            },
         },
-    },
-});
-const { memory, dtoa_buffered, ftoa_buffered } = instance.exports;
-const DST = memory.buffer.byteLength - 256;
-function readUtf16(len) {
-    const view = new Uint16Array(memory.buffer, DST, len);
-    let s = "";
-    for (let i = 0; i < view.length; i++) s += String.fromCharCode(view[i]);
-    return s;
+    });
+    const { memory } = instance.exports;
+    const DST = memory.buffer.byteLength - 256;
+    const read = (len) => {
+        const view = new Uint16Array(memory.buffer, DST, len);
+        let s = "";
+        for (let i = 0; i < view.length; i++) s += String.fromCharCode(view[i]);
+        return s;
+    };
+    const call = (fn, v) => read(instance.exports[fn](DST, v));
+    return { call };
 }
-const asDtoa = (v) => readUtf16(dtoa_buffered(DST, v));
-const asFtoa = (v) => readUtf16(ftoa_buffered(DST, v));
+const full = await loadModule("dtoa.wasm");
+const comp = await loadModule("dtoa-comp.wasm");
+const ftoaMod = await loadModule("ftoa.wasm");
+
+// Every target is checked against the same oracle for each generated input.
+const F64_TARGETS = [
+    { name: "dtoa", run: (v) => full.call("dtoa_buffered", v) },
+    { name: "dtoa-comp", run: (v) => comp.call("dtoa_buffered", v) },
+];
+const F32_TARGETS = [
+    { name: "ftoa", run: (v) => ftoaMod.call("ftoa_buffered", v) },
+];
 
 // ---- seeded RNG (xorshift32) ----------------------------------------------
 let rng = seed >>> 0;
@@ -172,42 +189,60 @@ function f32bitsU32(v) {
 
 // ---- run ------------------------------------------------------------------
 const crashes = [];
-function record(kind, bitsHex, v, got, want) {
+const perTarget = new Map(); // name -> { checked, fails }
+const tally = (name) =>
+    perTarget.get(name) ?? perTarget.set(name, { checked: 0, fails: 0 }).get(name);
+function record(target, bitsHex, v, got, want) {
     if (crashes.length < maxReport) {
         console.error(
-            `${kind} MISMATCH bits=0x${bitsHex} v=${v}\n  got =${JSON.stringify(got)}\n  want=${JSON.stringify(want)}`,
+            `${target} MISMATCH bits=0x${bitsHex} v=${v}\n  got =${JSON.stringify(got)}\n  want=${JSON.stringify(want)}`,
         );
     }
-    crashes.push({ kind, bits: "0x" + bitsHex, value: String(v), got, want });
+    crashes.push({ target, bits: "0x" + bitsHex, value: String(v), got, want });
 }
 
+const f64Targets = doF64 ? F64_TARGETS : [];
+const f32Targets = doF32 ? F32_TARGETS : [];
 console.log(
-    `fuzz: seed=${seed} runs=${Number.isFinite(runs) ? runs : "∞"}${Number.isFinite(timeLimitMs) ? ` time=${timeLimitMs / 1000}s` : ""} f64=${doF64} f32=${doF32}`,
+    `fuzz: seed=${seed} runs=${Number.isFinite(runs) ? runs : "∞"}${Number.isFinite(timeLimitMs) ? ` time=${timeLimitMs / 1000}s` : ""}\n  targets: ${[...f64Targets, ...f32Targets].map((t) => t.name).join(", ")}`,
 );
 const start = Date.now();
-let nF64 = 0,
-    nF32 = 0;
+let total = 0;
 for (let i = 0; i < runs; i++) {
-    if (doF64) {
+    if (f64Targets.length) {
         const v = genF64();
-        nF64++;
-        const got = asDtoa(v),
-            want = refDouble(v);
-        if (got !== want) record("f64", f64bits(v), v, got, want);
+        const want = refDouble(v);
+        const bits = f64bits(v);
+        for (const t of f64Targets) {
+            const c = tally(t.name);
+            c.checked++;
+            total++;
+            const got = t.run(v);
+            if (got !== want) {
+                c.fails++;
+                record(t.name, bits, v, got, want);
+            }
+        }
     }
-    if (doF32) {
+    if (f32Targets.length) {
         const v = genF32();
-        nF32++;
-        const got = asFtoa(v),
-            want = refFloat(v);
-        if (got !== want) record("f32", f32bits(v), v, got, want);
+        const want = refFloat(v);
+        const bits = f32bits(v);
+        for (const t of f32Targets) {
+            const c = tally(t.name);
+            c.checked++;
+            total++;
+            const got = t.run(v);
+            if (got !== want) {
+                c.fails++;
+                record(t.name, bits, v, got, want);
+            }
+        }
     }
     if ((i & 0x3ffff) === 0) {
         if (Date.now() - start > timeLimitMs) break;
         if (i > 0)
-            process.stdout.write(
-                `\r  ${nF64 + nF32} checked, ${crashes.length} fails…`,
-            );
+            process.stdout.write(`\r  ${total} checked, ${crashes.length} fails…`);
     }
     if (crashes.length >= 500) {
         console.error("\n…stopping early (500+ fails)");
@@ -217,9 +252,9 @@ for (let i = 0; i < runs; i++) {
 
 const elapsed = ((Date.now() - start) / 1000).toFixed(1);
 process.stdout.write("\r");
-console.log(
-    `fuzz: f64=${nF64} f32=${nF32} checked in ${elapsed}s, ${crashes.length} mismatch(es)`,
-);
+console.log(`fuzz: ${total} checks in ${elapsed}s, ${crashes.length} mismatch(es)`);
+for (const [name, c] of perTarget)
+    console.log(`  ${name.padEnd(10)} ${c.checked} checked, ${c.fails} fail`);
 
 if (crashes.length) {
     mkdirSync(crashDir, { recursive: true });

@@ -15,51 +15,67 @@ import {
   f64bits, f32bits, f64from, f32from,
 } from "./lib/oracle.mjs";
 
-const wasmPath = new URL("../../build/dtoa.wasm", import.meta.url);
-const bytes = readFileSync(wasmPath);
-const { instance } = await WebAssembly.instantiate(bytes, {
-  env: { abort() { throw new Error("wasm abort"); } },
-});
-const {
-  memory, dtoa_buffered, ftoa_buffered,
-} = instance.exports;
-// Exercise the public buffered UTF-16 writers into a separate buffer, then read
-// the UTF-16 result.
-const DST = memory.buffer.byteLength - 256;
-
-function readUtf16(len) {
-  const view = new Uint16Array(memory.buffer, DST, len);
-  let s = "";
-  for (let i = 0; i < view.length; i++) s += String.fromCharCode(view[i]);
-  return s;
+// Load each build target as its own module (see scripts/dtoa/build.sh):
+//   dtoa       full-table f64    (build/dtoa.wasm)
+//   dtoa-comp  compressed f64    (build/dtoa-comp.wasm)
+//   ftoa       compact f32 core  (build/ftoa.wasm)
+function loadModule(rel) {
+  const bytes = readFileSync(new URL(`../../build/${rel}`, import.meta.url));
+  const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes), {
+    env: { abort() { throw new Error("wasm abort"); } },
+  });
+  const { memory } = instance.exports;
+  const DST = memory.buffer.byteLength - 256;
+  const read = (len) => {
+    const view = new Uint16Array(memory.buffer, DST, len);
+    let s = "";
+    for (let i = 0; i < view.length; i++) s += String.fromCharCode(view[i]);
+    return s;
+  };
+  return { call: (fn, v) => read(instance.exports[fn](DST, v)) };
 }
-const asDtoa = (v) => readUtf16(dtoa_buffered(DST, v));
-const asFtoa = (v) => readUtf16(ftoa_buffered(DST, v));
+const full = loadModule("dtoa.wasm");
+const comp = loadModule("dtoa-comp.wasm");
+const ftoaMod = loadModule("ftoa.wasm");
+
+const F64_TARGETS = [
+  { name: "dtoa", run: (v) => full.call("dtoa_buffered", v) },
+  { name: "dtoa-comp", run: (v) => comp.call("dtoa_buffered", v) },
+];
+const F32_TARGETS = [
+  { name: "ftoa", run: (v) => ftoaMod.call("ftoa_buffered", v) },
+];
 
 let fails = 0;
 const maxReport = 40;
 function checkD(v) {
-  const got = asDtoa(v);
   const want = Number.isFinite(v) ? v.toString() : refDouble(v);
   // also cross-check our JS formatter equals V8 on finite values
   if (Number.isFinite(v) && refDouble(v) !== want) {
     if (fails++ < maxReport) console.log(`FORMATTER-BUG v=${v} ref=${refDouble(v)} v8=${want}`);
   }
-  if (got !== want) {
-    if (fails++ < maxReport) console.log(`f64 MISMATCH bits=0x${f64bits(v)} v=${v}\n  got =${JSON.stringify(got)}\n  want=${JSON.stringify(want)}`);
-    return false;
+  let ok = true;
+  for (const t of F64_TARGETS) {
+    const got = t.run(v);
+    if (got !== want) {
+      ok = false;
+      if (fails++ < maxReport) console.log(`${t.name} MISMATCH bits=0x${f64bits(v)} v=${v}\n  got =${JSON.stringify(got)}\n  want=${JSON.stringify(want)}`);
+    }
   }
-  return true;
+  return ok;
 }
 function checkF(v32) {
   const v = Math.fround(v32);
-  const got = asFtoa(v);
   const want = refFloat(v);
-  if (got !== want) {
-    if (fails++ < maxReport) console.log(`f32 MISMATCH bits=0x${f32bits(v)} v=${v}\n  got =${JSON.stringify(got)}\n  want=${JSON.stringify(want)}`);
-    return false;
+  let ok = true;
+  for (const t of F32_TARGETS) {
+    const got = t.run(v);
+    if (got !== want) {
+      ok = false;
+      if (fails++ < maxReport) console.log(`${t.name} MISMATCH bits=0x${f32bits(v)} v=${v}\n  got =${JSON.stringify(got)}\n  want=${JSON.stringify(want)}`);
+    }
   }
-  return true;
+  return ok;
 }
 
 // ---- Edge cases -----------------------------------------------------------

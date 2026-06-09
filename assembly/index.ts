@@ -1,1 +1,2 @@
-export { dtoa, dtoa_buffered, ftoa, ftoa_buffered } from "./dtoa";
+export { dtoa, dtoa_buffered } from "./dtoa";
+export { ftoa, ftoa_buffered } from "./ftoa";

@@ -20,8 +20,8 @@ jobs:
       - name: Install Dependencies
         run: bun install
 
-      - name: Run Tests (swar + simd)
+      - name: Run Tests (simd/swar x ASC_SHRINK_LEVEL 0/1/2)
         run: bun run test
 
-      - name: Verify against V8
+      - name: Verify against V8 (dtoa, dtoa-comp, ftoa, ftoa-comp)
         run: bun run verify

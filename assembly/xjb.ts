@@ -1,13 +1,14 @@
-// ECMAScript-compatible double/float -> string. The f64 path uses the xjb64 v2
-// shortest-decimal core (ported to AssemblyScript) and the f32 path keeps the
-// prior Żmij/xjb-derived core.
+// xjb64 f64 engine internals, imported by dtoa.ts: 128-bit math, the pow10 tables
+// + loads (full, or the compressed anchor cache at -Oz, per ASC_SHRINK_LEVEL),
+// the SIMD/SWAR digit kernel, the decimal-result globals, and the UTF-16 writers.
+// (ftoa.ts is self-contained and does not use this module.)
 
 // @ts-expect-error: may exist
-const HAS_SIMD: bool = isDefined(ZMIJ_SIMD) ? <bool>ZMIJ_SIMD : (isDefined(ASC_FEATURE_SIMD) && ASC_FEATURE_SIMD);
+export const HAS_SIMD: bool = isDefined(XJB_SIMD) ? <bool>XJB_SIMD : (isDefined(ASC_FEATURE_SIMD) && ASC_FEATURE_SIMD);
 
 // High 64 bits of the 128-bit product x * y. Matches umul128.
 // @ts-expect-error: decorator
-@inline function mulhi64(a: u64, b: u64): u64 {
+@inline export function mulhi64(a: u64, b: u64): u64 {
   const a0 = a & 0xffffffff, a1 = a >> 32;
   const b0 = b & 0xffffffff, b1 = b >> 32;
   const w0 = a0 * b0;
@@ -20,37 +21,383 @@ const HAS_SIMD: bool = isDefined(ZMIJ_SIMD) ? <bool>ZMIJ_SIMD : (isDefined(ASC_F
 
 // Returns (x * y + c) >> 64.
 // @ts-expect-error: decorator
-@inline function umul128AddHi64(x: u64, y: u64, c: u64): u64 {
-  const lo = x * y; // low 64 bits
+@inline export function umul128AddHi64(x: u64, y: u64, c: u64): u64 {
+  const lo = x * y;
   const hi = mulhi64(x, y);
   return hi + u64(lo + c < lo);
 }
 
-// floor(log10(2**bin_exp)) if regular, else floor(log10(3/4 * 2**bin_exp)).
+// floor(log10(2**bin_exp)). (The f64 path only ever needs the regular form; the
+// irregular 3/4 variant lives in ftoa.ts's own copy.)
 // @ts-expect-error: decorator
-@inline function computeDecExp(binExp: i32, regular: bool = true): i32 {
-  const log10_3_over_4_sig = 131072;
+@inline export function computeDecExp(binExp: i32): i32 {
   const log10_2_sig = 315653, log10_2_exp = 20;
-  return (binExp * log10_2_sig - (regular ? 0 : log10_3_over_4_sig)) >> log10_2_exp;
+  return (binExp * log10_2_sig) >> log10_2_exp;
 }
 
 // Shift that keeps a fixed 128-bit fractional part after scaling by 10**dec_exp.
 // @ts-expect-error: decorator
-@inline function computeExpShift(binExp: i32, decExp: i32): i32 {
+@inline export function computeExpShift(binExp: i32, decExp: i32): i32 {
   const log2_pow10_sig = 217707, log2_pow10_exp = 16;
   const pow10BinExp = (-decExp * log2_pow10_sig) >> log2_pow10_exp;
   return binExp + pow10BinExp + 1;
 }
 
-// Result of the most recent loadPow10 call. Will be removed if multi-value lands.
-let gPow10Hi: u64 = 0;
-let gPow10Lo: u64 = 0;
+export let gPow10Hi: u64 = 0;
+export let gPow10Lo: u64 = 0;
 
-// 128-bit significand of 10**i (Dougall Johnson's method): 618 entries stored
-// flat as [hi, lo] pairs (~9.7 KB). Baked at compile time - previously expanded
-// at module init from a compressed minor/major/fixup form; hardcoded here so no
-// LUT is built at runtime. Indexed by loadPow10 via (negIndex + 293).
-const POW10_TABLE = memory.data<u64>([
+// -O3 (shrink 0) keeps the full table for a direct load; -Os/-Oz use the
+// compressed anchors. Output is bit-identical; the unused table is DCE'd.
+const TABLE_COMPRESSED: bool = ASC_SHRINK_LEVEL >= 1;
+
+// Compressed pow10: every other power stored as a 128-bit anchor (grid phased so
+// e10=0 is always an anchor), the rest rebuilt at load as top128(anchor * 5) - one
+// multiply since 10 = 2 * 5 and the 2 is just a binary-exponent shift. 310 anchors
+// (4960 B) vs 9888 B, output bit-identical. idx = power + 293 in [0,617]: odd idx
+// are anchors (slots 0..308), even idx rebuild from the anchor below, idx 0 = slot
+// 309. @lazy lets binaryen drop these bytes when -Oz selects the full table.
+// @ts-ignore: decorator
+@lazy @inline const POW10_ANCHORS = memory.data<u64>([
+  0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a,
+  0xc795830d75038c1d, 0xd59df5b9ef6a2417,
+  0x9becce62836ac577, 0x4ee367f9430aec32,
+  0xf3a20279ed56d48a, 0x6b43527578c1110f,
+  0xbe5691ef416bd60c, 0x23cc986bc656d553,
+  0x94b3a202eb1c3f39, 0x7bf7d71432f3d6a9,
+  0xe858ad248f5c22c9, 0xd1b3400f8f9cff68,
+  0xb58547448ffffb2d, 0xabd40a0c2832a78a,
+  0x8dd01fad907ffc3b, 0xae3da7d97f6792e3,
+  0xdd95317f31c7fa1d, 0x40405643d711d583,
+  0xad1c8eab5ee43b66, 0xda3243650005eecf,
+  0x873e4f75e2224e68, 0x5a7744a6e804a291,
+  0xd3515c2831559a83, 0x0d5a5b44ca873e03,
+  0xa5178fff668ae0b6, 0x626e974dbe39a872,
+  0x80fa687f881c7f8e, 0x7ce66634bc9d0b99,
+  0xc987434744ac874e, 0xa327ffb266b56220,
+  0x9d71ac8fada6c9b5, 0x6f773fc3603db4a9,
+  0xf6019da07f549b2b, 0x7e2a53a146606a48,
+  0xc0314325637a1939, 0xfa911155fefb5308,
+  0x96267c7535b763b5, 0x4bc1558b2f3458de,
+  0xea9c227723ee8bcb, 0x465e15a979c1cadc,
+  0xb749faed14125d36, 0xcef980ec671f667b,
+  0x8f31cc0937ae58d2, 0xd1b2ecb8b0908810,
+  0xdfbdcece67006ac9, 0x67a791e093e1d49a,
+  0xaecc49914078536d, 0x58fae9f773886e18,
+  0x888f99797a5e012d, 0x6d8406c952429603,
+  0xd5605fcdcf32e1d6, 0xfb1e4a9a90880a64,
+  0xa6b34ad8c9dfc06f, 0xf42faa48c0ea481e,
+  0x823c12795db6ce57, 0x76c53d08d6b70858,
+  0xcb7ddcdda26da268, 0xa9942f5dcf7dfd09,
+  0x9efa548d26e5a6e1, 0xc47bc5014a1a6daf,
+  0xf867241c8cc6d4c0, 0xc30163d203c94b62,
+  0xc21094364dfb5636, 0x985915fc12f542e4,
+  0x979cf3ca6cec5b5a, 0xa705992ceecf9c42,
+  0xece53cec4a314ebd, 0xa4f8bf5635246428,
+  0xb913179899f68584, 0x28e2557b59846e3f,
+  0x9096ea6f3848984f, 0x3ff0d2c85def7621,
+  0xe1ebce4dc7f16dfb, 0xd3e8495912c62894,
+  0xb080392cc4349dec, 0xbd8d794d96aacfb3,
+  0x89e42caaf9491b60, 0xf41686c49db57244,
+  0xd77485cb25823ac7, 0x7d633293366b828b,
+  0xa8530886b54dbdeb, 0xd9f57f830283fdfc,
+  0x8380dea93da4bc60, 0x4247cb9e59f71e6d,
+  0xcd795be870516656, 0x67902e276c921f8b,
+  0xa086cfcd97bf97f3, 0x80e8a40eccd228a4,
+  0xfad2a4b13d1b5d6c, 0x796b805720085f81,
+  0xc3f490aa77bd60fc, 0xbedbfc4411068a9c,
+  0x991711052d8bf3c5, 0x751bdd152d4d1c4a,
+  0xef340a98172aace4, 0x86fb897116c87c34,
+  0xbae0a846d2195712, 0x8974836059cca109,
+  0x91ff83775423cc06, 0x7b6306a34627ddcf,
+  0xe41f3d6a7377eeca, 0x20caba5f1d9e4a93,
+  0xb23867fb2a35b28d, 0xe99e619a4f23aa43,
+  0x8b3c113c38f9f37e, 0xde83bc408dd3dd04,
+  0xd98ddaee19068c76, 0x3badd624dd9b0957,
+  0xa9f6d30a038d1dbc, 0x5e9fcf4ccd211f4c,
+  0x84c8d4dfd2c63f3b, 0x29ecd9f40041e073,
+  0xcf79cc9db955c2cc, 0x7182148d4066eeb4,
+  0xa21727db38cb002f, 0xb8ada00e5a506a7c,
+  0xfd442e4688bd304a, 0x908f4a166d1da663,
+  0xc5dd44271ad3cdba, 0x40eff1e1853f29fd,
+  0x9a94dd3e8cf578b9, 0x82bb74f8301958ce,
+  0xf18899b1bc3f8ca1, 0xdc44e6c3cb279ac1,
+  0xbcb2b812db11a5de, 0x7415d448f6b6f0e7,
+  0x936b9fcebb25c995, 0xcab10dd900beec34,
+  0xe65829b3046b0afa, 0x0cb4a5a3112a5112,
+  0xb3f4e093db73a093, 0x59ed216765690f56,
+  0x8c974f7383725573, 0x1e414218c73a13fb,
+  0xdbac6c247d62a583, 0xdf45f746b74abf39,
+  0xab9eb47c81f5114f, 0x066ea92f3f326564,
+  0x8613fd0145877585, 0xbd06742ce95f5f36,
+  0xd17f3b51fca3a7a0, 0xf75a15862ca504c5,
+  0xa3ab66580d5fdaf5, 0xc13e60d0d2e0ebba,
+  0xffbbcfe994e5c61f, 0xfdf17746497f7052,
+  0xc7caba6e7c5382c8, 0xfe64a52ee96b8fc0,
+  0x9c1661a651213e2d, 0x06bea10ca65c084e,
+  0xf3e2f893dec3f126, 0x5a89dba3c3efccfa,
+  0xbe89523386091465, 0xf6bbb397f1135823,
+  0x94db483840b717ef, 0xa8c2a44eb4571cdc,
+  0xe896a0d7e51e1566, 0x77b020baf9c81d17,
+  0xb5b5ada8aaff80b8, 0x0d819992132456ba,
+  0x8df5efabc5979c8f, 0xca8d3ffa1ef463c1,
+  0xddd0467c64bce4a0, 0xac7cb3f6d05ddbde,
+  0xad4ab7112eb3929d, 0x86c16c98d2c953c6,
+  0x87625f056c7c4a8b, 0x11471cd764ad4972,
+  0xd389b47879823479, 0x4aff1d108d4ec2c3,
+  0xa54394fe1eedb8fe, 0xc2974eb4ee658828,
+  0x811ccc668829b887, 0x0806357d5a3f525f,
+  0xc9bcff6034c13052, 0xfc89b393dd02f0b5,
+  0x9d9ba7832936edc0, 0xd54b944b84aa4c0d,
+  0xf64335bcf065d37d, 0x4d4617b5ff4a16d5,
+  0xc06481fb9bcf8d39, 0xe45ec2862f71e1d6,
+  0x964e858c91ba2655, 0x3a6a07f8d510f86f,
+  0xeadab0aba3b2dbe5, 0x2b45ac74ccea842e,
+  0xb77ada0617e3bbcb, 0x09ce6ebb40173744,
+  0x8f57fa54c2a9eab6, 0x9fa946824a12232d,
+  0xdff9772470297ebd, 0x59787e2b93bc56f7,
+  0xaefae51477a06b03, 0xede622920b6b23f1,
+  0x88b402f7fd75539b, 0x11dbcb0218ebb414,
+  0xd59944a37c0752a2, 0x4be76d3346f0495f,
+  0xa6dfbd9fb8e5b88e, 0xcb4ccd500f6bb952,
+  0x825ecc24c873782f, 0x8ed400668c0c28c8,
+  0xcbb41ef979346bca, 0x4f2b40a03ad2ffb9,
+  0x9f24b832e6b0f436, 0x0dd9ca7d2df4d7c9,
+  0xf8a95fcf88747d94, 0x75a44c6397ce912a,
+  0xc24452da229b021b, 0xfbe85badce996168,
+  0x97c560ba6b0919a5, 0xdccd879fc967d41a,
+  0xed246723473e3813, 0x290123e9aab23b68,
+  0xb94470938fa89bce, 0xf808e40e8d5b3e69,
+  0x90bd77f3483bb9b9, 0xb1c6f22b5e6f48c2,
+  0xe2280b6c20dd5232, 0x25c6da63c38de1b0,
+  0xb0af48ec79ace837, 0x2d835a9df0c6d851,
+  0x8a08f0f8bf0f156b, 0x1b8e9ecb641b58ff,
+  0xd7adf884aa879177, 0x5b0ed81dcc6abb0f,
+  0xa87fea27a539e9a5, 0x3f2398d747b36224,
+  0x83a3eeeef9153e89, 0x1953cf68300424ac,
+  0xcdb02555653131b6, 0x3792f412cb06794d,
+  0xa0b19d2ab70e6ed6, 0x5b6aceaeae9d0ec4,
+  0xfb158592be068d2e, 0xeed6e2f0f0d56712,
+  0xc428d05aa4751e4c, 0xaa97e14c3c26b886,
+  0x993fe2c6d07b7fab, 0xe546a8038efe4029,
+  0xef73d256a5c0f77c, 0x963e66858f6d4440,
+  0xbb127c53b17ec159, 0x5560c018580d5d52,
+  0x9226712162ab070d, 0xcab3961304ca70e8,
+  0xe45c10c42a2b3b05, 0x8cb89a7db77c506a,
+  0xb267ed1940f1c61c, 0x55f038b237591ed3,
+  0x8b61313bbabce2c6, 0x2323ac4b3b3da015,
+  0xd9c7dced53c72255, 0x96e7bd358c904a21,
+  0xaa242499697392d2, 0xdde50bd1d5d0b9e9,
+  0x84ec3c97da624ab4, 0xbd5af13bef0b113e,
+  0xcfb11ead453994ba, 0x67de18eda5814af2,
+  0xa2425ff75e14fc31, 0xa1258379a94d028d,
+  0xfd87b5f28300ca0d, 0x8bca9d6e188853fc,
+  0xc612062576589dda, 0x95364afe032a819d,
+  0x9abe14cd44753b52, 0xc4926a9672793542,
+  0xf1c90080baf72cb1, 0x5324c68b12dd6338,
+  0xbce5086492111aea, 0x88f4bb1ca6bcf584,
+  0x9392ee8e921d5d07, 0x3aff322e62439fcf,
+  0xe69594bec44de15b, 0x4c2ebe687989a9b3,
+  0xb424dc35095cd80f, 0x538484c19ef38c94,
+  0x8cbccc096f5088cb, 0xf93f87b7442e45d3,
+  0xdbe6fecebdedd5be, 0xb573440e5a884d1b,
+  0xabcc77118461cefc, 0xfdc20d2b36ba7c3d,
+  0x8637bd05af6c69b5, 0xa63f9a49c2c1b10f,
+  0xd1b71758e219652b, 0xd3c36113404ea4a8,
+  0xa3d70a3d70a3d70a, 0x3d70a3d70a3d70a3,
+  0x8000000000000000, 0x0000000000000000,
+  0xc800000000000000, 0x0000000000000000,
+  0x9c40000000000000, 0x0000000000000000,
+  0xf424000000000000, 0x0000000000000000,
+  0xbebc200000000000, 0x0000000000000000,
+  0x9502f90000000000, 0x0000000000000000,
+  0xe8d4a51000000000, 0x0000000000000000,
+  0xb5e620f480000000, 0x0000000000000000,
+  0x8e1bc9bf04000000, 0x0000000000000000,
+  0xde0b6b3a76400000, 0x0000000000000000,
+  0xad78ebc5ac620000, 0x0000000000000000,
+  0x878678326eac9000, 0x0000000000000000,
+  0xd3c21bcecceda100, 0x0000000000000000,
+  0xa56fa5b99019a5c8, 0x0000000000000000,
+  0x813f3978f8940984, 0x4000000000000000,
+  0xc9f2c9cd04674ede, 0xa400000000000000,
+  0x9dc5ada82b70b59d, 0xf020000000000000,
+  0xf684df56c3e01bc6, 0xc732000000000000,
+  0xc097ce7bc90715b3, 0x4b9f100000000000,
+  0x96769950b50d88f4, 0x1314448000000000,
+  0xeb194f8e1ae525fd, 0x5dcfab0800000000,
+  0xb7abc627050305ad, 0xf14a3d9e40000000,
+  0x8f7e32ce7bea5c6f, 0xe4820023a2000000,
+  0xe0352f62a19e306e, 0xd50b2037ad200000,
+  0xaf298d050e4395d6, 0x9670b12b7f410000,
+  0x88d8762bf324cd0f, 0xa5880a69fb6ac800,
+  0xd5d238a4abe98068, 0x72a4904598d6d880,
+  0xa70c3c40a64e6c51, 0x999090b65f67d924,
+  0x82818f1281ed449f, 0xbff8f10e7a8921a4,
+  0xcbea6f8ceb02bb39, 0x9bf4f8a69f764490,
+  0x9f4f2726179a2245, 0x01d762422c946590,
+  0xf8ebad2b84e0d58b, 0xd2e0898765a7deb2,
+  0xc2781f49ffcfa6d5, 0x3cbf6b71c76b25fb,
+  0x97edd871cfda3a56, 0x97758bf0e3cbb5ac,
+  0xed63a231d4c4fb27, 0x4ca7aaa863ee4bdd,
+  0xb975d6b6ee39e436, 0xb3e2fd538e122b44,
+  0x90e40fbeea1d3a4a, 0xbc8955e946fe31cd,
+  0xe264589a4dcdab14, 0xc696963c7eed2dd1,
+  0xb0de65388cc8ada8, 0x3b25a55f43294bcb,
+  0x8a2dbf142dfcc7ab, 0x6e3569326c784337,
+  0xd7e77a8f87daf7fb, 0xdc33745ec97be906,
+  0xa8acd7c0222311bc, 0xc40832ea0d68ce0c,
+  0x83c7088e1aab65db, 0x792667c6da79e0fa,
+  0xcde6fd5e09abcf26, 0xed4c0226b55e6f86,
+  0xa0dc75f1778e39d6, 0x696361ae3db1c721,
+  0xfb5878494ace3a5f, 0x04ab48a04065c723,
+  0xc45d1df942711d9a, 0x3ba5d0bd324f8394,
+  0x9968bf6abbe85f20, 0x7e998b13cf4e1ecb,
+  0xefb3ab16c59b14a2, 0xc5cfe94ef3ea101e,
+  0xbb445da9ca61281f, 0x2a8a6e45ae8edc97,
+  0x924d692ca61be758, 0x593c2626705f9c56,
+  0xe498f455c38b997a, 0x0b6dfb9c0f956447,
+  0xb2977ee300c50fe7, 0x58edec91ec2cb657,
+  0x8b865b215899f46c, 0xbd79e0d20082ee74,
+  0xda01ee641a708de9, 0xe80e6f4820cc9495,
+  0xaa51823e34a7eede, 0xbd4b46f0599fd415,
+  0x850fadc09923329e, 0x03e2cf6bc604ddb0,
+  0xcfe87f7cef46ff16, 0xe612641865679a63,
+  0xa26da3999aef7749, 0xe3be5e330f38f09d,
+  0xfdcb4fa002162a63, 0x73d9732fc7c8f7f6,
+  0xc646d63501a1511d, 0xb281e1fd541501b8,
+  0x9ae757596946075f, 0x3375788de9b06958,
+  0xf209787bb47d6b84, 0xc0678c5dbd23a49a,
+  0xbd176620a501fbff, 0xb650e5a93bc3d898,
+  0x93ba47c980e98cdf, 0xc66f336c36b10137,
+  0xe6d3102ad96cec1d, 0xa60dc059157491e5,
+  0xb454e4a179dd1877, 0x29babe4598c311fb,
+  0x8ce2529e2734bb1d, 0x1899e4a65f58660c,
+  0xdc21a1171d42645d, 0x76707543f4fa1f73,
+  0xabfa45da0edbde69, 0x0487db9d17636892,
+  0x865b86925b9bc5c2, 0x0b8a2392ba45a9b2,
+  0xd1ef0244af2364ff, 0x3207d795430cd926,
+  0xa402b9c5a8d3a6e7, 0x5f16206c9c6209a6,
+  0x802221226be55a64, 0xc2494954da2c9789,
+  0xc83553c5c8965d3d, 0x6f92829494e5acc7,
+  0x9c69a97284b578d7, 0xff2a760414536efb,
+  0xf46518c2ef5b8cd1, 0x7eb258665fc25d69,
+  0xbeeefb584aff8603, 0xaafb550ffacfd8fa,
+  0x952ab45cfa97a0b2, 0xdd945a747bf26183,
+  0xe912b9d1478ceb17, 0x7a37cd5601aab85d,
+  0xb616a12b7fe617aa, 0x577b986b314d6009,
+  0x8e41ade9fbebc27d, 0x14588f13be847307,
+  0xde469fbd99a05fe3, 0x6fca5f8ed9aef3bb,
+  0xada72ccc20054ae9, 0xaf561aa79a10ae6a,
+  0x87aa9aff79042286, 0x90fb44d2f05d0842,
+  0xd3fa922f2d1675f2, 0x42889b8997915ce8,
+  0xa59bc234db398c25, 0x43fab9837e699095,
+  0x8161afb94b44f57d, 0x1d1be0eebac278f5,
+  0xca28a291859bbf93, 0x7d7b8f7503cfdcfe,
+  0x9defbf01b061adab, 0x3a0888136afa64a7,
+  0xf6c69a72a3989f5b, 0x8aad549e57273d45,
+  0xc0cb28a98fcf3c7f, 0x84576a1bb416a7dd,
+  0x969eb7c47859e743, 0x9f644ae5a4b1b325,
+  0xeb57ff22fc0c7959, 0xa90cb506d155a7ea,
+  0xb7dcbf5354e9bece, 0x0c11ed6d538aeb2f,
+  0x8fa475791a569d10, 0xf96e017d694487bc,
+  0xe070f78d3927556a, 0x85bbe253f47b1417,
+  0xaf58416654a6babb, 0x387ac8d1970027b2,
+  0x88fcf317f22241e2, 0x441fece3bdf81f03,
+  0xd60b3bd56a5586f1, 0x8a71e223d8d3b074,
+  0xa738c6bebb12d16c, 0xb428f8ac016561db,
+  0x82a45b450226b39c, 0xecc0024661173473,
+  0xcc20ce9bd35c78a5, 0x31ec038df7b441f4,
+  0x9f79a169bd203e41, 0x0f0062c6e984d386,
+  0xf92e0c3537826145, 0xa7709a56ccdf8a82,
+  0xc2abf989935ddbfe, 0x6acff893d00ea435,
+  0x98165af37b2153de, 0xc3727a337a8b704a,
+  0xeda2ee1c7064130c, 0x1162def06f79df73,
+  0xb9a74a0637ce2ee1, 0x6d953e2bd7173692,
+  0x910ab1d4db9914a0, 0x1d9c9892400a22a2,
+  0xe2a0b5dc971f303a, 0x2e44ae64840fd61d,
+  0xb10d8e1456105dad, 0x7425a83e872c5f47,
+  0x8a5296ffe33cc92f, 0x82bd6b70d99aaa6f,
+  0xd8210befd30efa5a, 0x3c47f7e05401aa4e,
+  0xa8d9d1535ce3b396, 0x7f1839a741a14d0d,
+  0x83ea2b892091e44d, 0x934aed0aab460432,
+  0xce1de40642e3f4b9, 0x36251260ab9d668e,
+  0xa1075a24e4421730, 0xb24cf65b8612f81f,
+  0xfb9b7cd9a4a7443c, 0x169840ef017da3b1,
+  0xc491798a08a2ad4e, 0xf1a6f2bab92a27e2,
+  0x9991a6f3d6bf1765, 0xacca6da1e0a8ef29,
+  0xeff394dcff8a948e, 0xddfc4b4cef07f5b0,
+  0xbb764c4ca7a4440f, 0x9d6d1ad41abe37f1,
+  0x92746b9be2f8552c, 0x32fd3cf5b4e49bb4,
+  0xe4d5e82392a40515, 0x0fabaf3feaa5334a,
+  0xb2c71d5bca9023f8, 0x743e20e9ef511012,
+  0x8bab8eefb6409c1a, 0x1ad089b6c2f7548e,
+  0xda3c0f568cc4f3e8, 0xc9e5d72d90a2741e,
+  0xaa7eebfb9df9de8d, 0xddbb901b98feeab7,
+  0x8533285c936b35de, 0xd53a88958f87275f,
+  0xd01fef10a657842c, 0x2d2b7569b0432d85,
+  0xa298f2c501f45f42, 0x8349f3ba91b47b8f,
+  0xfe0efb53d30dd4d7, 0xed238cd383aa0110,
+  0xc67bb4597ce2ce48, 0xb143c6053edcd0d5,
+  0x9b10a4e5e9913128, 0xca7cf2b4191c8326,
+  0xf24a01a73cf2dccf, 0xbc633b39673c8cec,
+  0xbd49d14aa79dbc82, 0x4b2d8644d8a74e18,
+  0x93e1ab8252f33b45, 0xcabb90e5c942b503,
+  0xe7109bfba19c0c9d, 0x0cc512670a783ad4,
+  0xb484f9dc9641e9da, 0xb1f9f660802dedf6,
+  0x8d07e33455637eb2, 0xdb0b487b6423e1e8,
+  0xdc5c5301c56b75f7, 0x7641a140cc7810fb,
+  0xac2820d9623bf429, 0x546345fa9fbdcd44,
+  0x867f59a9d4bed6c0, 0x49ed8eabcccc485d,
+  0xd226fc195c6a2f8c, 0x73832eec6fff3111,
+  0xa42e74f3d032f525, 0xba3e7ca8b77f5e55,
+  0x80444b5e7aa7cf85, 0x7980d163cf5b81b3,
+  0xc86ab5c39fa63440, 0x8dd9472bf3fefaa7,
+  0x9c935e00d4b9d8d2, 0x6ed1bf9a569f33d3,
+  0xf4a642e14c6262c8, 0xcd27bb612758c0fa,
+  0xbf21e44003acdd2c, 0xe0470a63e6bd56c3,
+  0x95527a5202df0ccb, 0x0f37801e0c43ebc8,
+  0xe950df20247c83fd, 0x47c6b82ef32a2069,
+  0xb6472e511c81471d, 0xe0133fe4adf8e952,
+  0x8e679c2f5e44ff8f, 0x570f09eaa7ea7648,
+  0xde81e40a034bcf4f, 0xf8077f7ea65e58d1,
+  0xadd57a27d29339f6, 0x79c5db9af1f9b563,
+  0x87cec76f1c830548, 0x8f2293910d0b15b5,
+  0xd433179d9c8cb841, 0x5fa60692a46151eb,
+  0xa5c7ea73224deff3, 0x12b9b522906c0800,
+  0x81842f29f2cce375, 0xe6a1158300d46640,
+  0xca5e89b18b602368, 0x385bb19cb14bdfc4,
+  0x9e19db92b4e31ba9, 0x6c07a2c26a8346d1,
+  0xcc5fc196fefd7d0c, 0x1e53ed49a96272c8,
+]);
+
+// Rebuild gPow10Hi/gPow10Lo for table index idx in [0,617] from the compressed
+// anchors. Odd idx (and idx 0) are stored directly; even idx multiply the anchor
+// just below by 5 and renormalize the 128-bit window (top byte width = shift).
+// @ts-expect-error: decorator
+@inline function reconPow10(idx: i32): void {
+  let slot: i32, r: i32;
+  if (idx == 0) { slot = 309; r = 0; }
+  else { r = (idx & 1) ^ 1; slot = (idx - 1 - r) >> 1; }
+  const off = POW10_ANCHORS + (slot << 4);
+  const pHi = load<u64>(off);
+  const pLo = load<u64>(off, 8);
+  if (r == 0) { gPow10Hi = pHi; gPow10Lo = pLo; return; }
+  // product = anchor * 5 = top:mid:loLo, then renormalize to top 128 bits.
+  const loLo = pLo * 5;
+  const loHi = mulhi64(pLo, 5);
+  const hiLo = pHi * 5;
+  const hiHi = mulhi64(pHi, 5);
+  const mid = hiLo + loHi;
+  const top = hiHi + u64(mid < hiLo); // in [2,4]
+  const shift = 64 - <i32>clz(top);   // 2 or 3
+  gPow10Hi = (top << (64 - shift)) | (mid >> shift);
+  gPow10Lo = (mid << (64 - shift)) | (loLo >> shift);
+}
+
+// 128-bit significand of 10**i (Dougall Johnson's method): 618 [hi, lo] pairs,
+// indexed by (power + 293). @lazy so binaryen drops it from -Oz size builds.
+// @ts-ignore: decorator
+@lazy @inline const POW10_TABLE = memory.data<u64>([
   0xcc5fc196fefd7d0c, 0x1e53ed49a96272c8, 0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a,
   0x9faacf3df73609b1, 0x77b191618c54e9ac, 0xc795830d75038c1d, 0xd59df5b9ef6a2417,
   0xf97ae3d0d2446f25, 0x4b0573286b44ad1d, 0x9becce62836ac577, 0x4ee367f9430aec32,
@@ -362,37 +709,33 @@ const POW10_TABLE = memory.data<u64>([
   0xfcf62c1dee382c42, 0x46729e03dd9ed7b5, 0x9e19db92b4e31ba9, 0x6c07a2c26a8346d1,
 ]);
 
-// Hot-path lookup: 10**(-(negIndex + 293)) significand. dec_exp_min = -293.
+// xjb64 v2 rounds up the negative-power low limb by one.
 // @ts-expect-error: decorator
-@inline function loadPow10(negIndex: i32): void {
-  const off = POW10_TABLE + ((negIndex + 293) << 4);
-  gPow10Hi = load<u64>(off);
-  gPow10Lo = load<u64>(off, 8);
-}
-
-// xjb64 v2 rounds up the negative-power low limb by one. Keep the legacy table
-// for f32 and derive the f64-specific variant on load.
-// @ts-expect-error: decorator
-@inline function loadPow10Xjb64(power: i32): void {
+@inline export function loadPow10Xjb64(power: i32): void {
+  if (TABLE_COMPRESSED) { reconPow10(power + 293); gPow10Lo += u64(power < 0); return; }
   const off = POW10_TABLE + ((power + 293) << 4);
   gPow10Hi = load<u64>(off);
-  gPow10Lo = load<u64>(off, 8) + <u64>(power < 0);
+  gPow10Lo = load<u64>(off, 8) + u64(power < 0);
+}
+
+// @ts-expect-error: decorator
+@inline export function loadPow10HiXjb64(power: i32): u64 {
+  if (TABLE_COMPRESSED) { reconPow10(power + 293); return gPow10Hi; }
+  return load<u64>(POW10_TABLE + ((power + 293) << 4));
 }
 
 const DIV10K_EXP = 40;
 const DIV10K_SIG: u64 = ((<u64>1) << DIV10K_EXP) / 10000 + 1;
 const NEG10K: u64 = ((<u64>1) << 32) - 10000;
-
 const DIV100_EXP = 19;
 const DIV100_SIG: u64 = (1 << DIV100_EXP) / 100 + 1;
 const NEG100: u64 = (1 << 16) - 100;
-
 const DIV10_EXP = 10;
 const DIV10_SIG: u64 = (1 << DIV10_EXP) / 10 + 1;
 const NEG10: u64 = (1 << 8) - 10;
+export const ZEROS: u64 = 0x3030303030303030;
 
-const ZEROS: u64 = 0x3030303030303030; // 0x01010101_01010101 * '0'
-const POW10_SMALL = memory.data<u64>([
+export const POW10_SMALL = memory.data<u64>([
   1,
   10,
   100,
@@ -410,7 +753,8 @@ const POW10_SMALL = memory.data<u64>([
   100000000000000,
   1000000000000000,
 ]);
-const DIGIT_PAIRS = memory.data<u16>([
+
+export const DIGIT_PAIRS = memory.data<u16>([
   0x3030, 0x3130, 0x3230, 0x3330, 0x3430, 0x3530, 0x3630, 0x3730, 0x3830, 0x3930,
   0x3031, 0x3131, 0x3231, 0x3331, 0x3431, 0x3531, 0x3631, 0x3731, 0x3831, 0x3931,
   0x3032, 0x3132, 0x3232, 0x3332, 0x3432, 0x3532, 0x3632, 0x3732, 0x3832, 0x3932,
@@ -427,7 +771,7 @@ const DIGIT_PAIRS = memory.data<u16>([
 let gBcd: u64 = 0;
 let gBcdLen: i32 = 0;
 
-// Converts a value < 1e8 to 8 packed BCD digits ('a' in the low byte)
+// value < 1e8 -> 8 packed BCD digits (SWAR: divide-by-const reciprocals).
 function toBcd8(abcdefgh: u64): void {
   const abcd_efgh = abcdefgh + NEG10K * ((abcdefgh * DIV10K_SIG) >> DIV10K_EXP);
   const ab_cd_ef_gh =
@@ -452,8 +796,7 @@ export let gDigNum: i32 = 0;
   return i16x8.narrow_i32x4_u(lo, hi);
 }
 
-// Converts four 4-digit values (one per i32 lane) into 16 BCD bytes, where byte
-// i holds the 10**i digit.
+// Four 4-digit lanes -> 16 BCD bytes (byte i = 10**i digit).
 // @ts-expect-error: decorator
 @inline function toBcd4x4(y: v128): v128 {
   const div100 = i32x4.splat(<i32>DIV100_SIG); // 5243
@@ -465,9 +808,8 @@ export let gDigNum: i32 = 0;
   return i16x8.add(z, i16x8.mul(neg10v, mulhiU16(z, div10v)));
 }
 
-// Swizzle mask: pull the low 32 bits of each i64 lane into adjacent i32 lanes
-// 0,1 and zero the rest. Lets a single-input v128.swizzle stand in for the
-// two-input shuffle with a separate zero vector.
+// Pack the low 32 bits of each i64 lane into adjacent i32 lanes 0,1 (zero the
+// rest), so a single-input swizzle replaces a two-input shuffle.
 // @ts-expect-error: decorator
 @inline function packLo32(v: v128): v128 {
   return v128.swizzle(v, i8x16(0, 1, 2, 3, 8, 9, 10, 11, -128, -128, -128, -128, -128, -128, -128, -128));
@@ -489,9 +831,7 @@ export let gDigNum: i32 = 0;
   const bcd = toBcd4x4(y);
 
   const mask = i8x16.bitmask(i8x16.gt_s(bcd, i8x16.splat(0)));
-  // The significand fed here is always >= 1 (NaN/Inf/0 are handled upstream),
-  // so, mask is never 0 and there is no all-zero (gDigNum = 0) case to guard.
-  gDigNum = 16 - ctz(mask);
+  gDigNum = 16 - ctz(mask); // mask is never 0 (significand >= 1)
 
   const ascii = v128.or(
     v128.swizzle(bcd, i8x16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)),
@@ -525,192 +865,24 @@ export let gDigNum: i32 = 0;
   toDigits64Swar(value);
 }
 
-// @ts-expect-error: decorator
-@inline function toDigits32Simd(value: u64): void {
-  const abcd_efgh = value + NEG10K * ((value * DIV10K_SIG) >> DIV10K_EXP);
-  const x = i64x2.replace_lane(i64x2.splat(abcd_efgh), 1, 0);
-  const bcd = toBcd4x4(x); // bytes 0-7 = 10**0..10**7 digits, 8-15 = 0
-  const low = i64x2.extract_lane(bcd, 0);
-  gDigHi = bswap<u64>(low) + ZEROS; // printing order ASCII
-  // Significand is always >= 1, so `low` is never 0 (ctz would give 64 and
-  // 8 - (64 >> 3) == 0 anyway, but the input never reaches that case).
-  gDigNum = 8 - <i32>(ctz(low) >> 3);
-}
-
-// to_digits<32>: a single u64 of 8 ASCII digits (value < 1e8).
-// @ts-expect-error: decorator
-@inline export function toDigits32(value: u64): void {
-  if (HAS_SIMD) return toDigits32Simd(value);
-  toBcd8(value);
-  gDigHi = gBcd + ZEROS;
-  gDigNum = gBcdLen;
-}
-
 // to_decimal_result
 export let gSig: i64 = 0;
 export let gExp: i32 = 0;
 export let gLastDigit: i32 = 0;
 export let gHasLastDigit: bool = false;
 
-// @ts-expect-error: decorator
-@inline function setDecimalResult(integral: u64, one: u64, decExp: i32): void {
-  if (one == 10) {
-    gSig = <i64>(integral + 1);
-    gLastDigit = 0;
-    gHasLastDigit = false;
-  } else if (one == 0) {
-    gSig = <i64>integral;
-    gLastDigit = 0;
-    gHasLastDigit = false;
-  } else {
-    gSig = <i64>integral;
-    gLastDigit = <i32>one;
-    gHasLastDigit = true;
-  }
-  gExp = decExp;
-}
-
-const DOUBLE_EXP_OFFSET = 1075; // exp_bias(1023) + num_sig_bits(52)
-const EXTRA_SHIFT = 6;
-const BIASED_HALF: u64 = ((<u64>1) << 63) + 6;
-
-// Generic power-of-two boundary path
-// @ts-expect-error: decorator
-@inline function decodeIrregular(binSig: u64, binExp: i32): void {
-  const decExp = computeDecExp(binExp, false);
-  const shift = computeExpShift(binExp, decExp + 1) + EXTRA_SHIFT;
-  loadPow10(-decExp - 1);
-  const pHi = gPow10Hi, pLo = gPow10Lo;
-  const y = binSig << shift;
-
-  const a = mulhi64(pHi, y);
-  const plo64 = pHi * y;
-  const lo = plo64 + mulhi64(pLo, y);
-  const p_hi = a + u64(lo < plo64);
-  const p_lo = lo;
-
-  let integral = <i64>(p_hi >> EXTRA_SHIFT);
-  const fractional = (p_hi << (64 - EXTRA_SHIFT)) | (p_lo >> EXTRA_SHIFT);
-
-  const half_ulp = pHi >> (EXTRA_SHIFT + 1 - shift);
-  const round_up = half_ulp > ~(<u64>0) - fractional;
-  const round_down = half_ulp >> 1 > fractional;
-  integral += i64(round_up);
-
-  let digit = <i32>umul128AddHi64(fractional, 10, ((<u64>1) << 63) - 1);
-  const lo2 = <i32>umul128AddHi64(fractional - (half_ulp >> 1), 10, ~(<u64>0));
-  if (digit < lo2) digit = lo2;
-
-  gSig = integral;
-  gExp = decExp;
-  gLastDigit = digit;
-  gHasLastDigit = !(round_up || round_down);
-}
-
-// Converts bin_sig * 2**(raw_exp - exp_offset) to the shortest decimal.
-// @ts-expect-error: decorator
-@inline export function toDecimalDouble(binSig: u64, rawExp: i32, regular: bool): void {
-  const isSubnormal = rawExp == 0;
-  const expField = isSubnormal ? 0 : rawExp;
-  const c = isSubnormal ? binSig : binSig | ((<u64>1) << 52);
-  const q = isSubnormal ? -1074 : rawExp - DOUBLE_EXP_OFFSET;
-
-  if (!regular) {
-    const decExp = (q * 315653 - 131072) >> 20;
-    const powExp = -decExp - 1;
-    const h = q + ((powExp * 217707) >> 16);
-
-    loadPow10Xjb64(powExp);
-    const pow10Hi = gPow10Hi;
-
-    const integral = pow10Hi >> (11 - h);
-    const halfUlp = pow10Hi >> (-h);
-    const dotOne = pow10Hi << (53 + h);
-
-    let one = ((((dotOne >> (53 + h)) * 5) + (((<u64>1) << (9 - h)))) >> (10 - h));
-    one = ((((dotOne >> 54) * 5) & 0x1ff) > ((halfUlp >> 55) * 5))
-      ? ((((dotOne >> 54) * 5) >> 9) + 1)
-      : one;
-    one = dotOne == ((<u64>1) << 62) ? 2 : one;
-    one = (halfUlp >> 1) > dotOne ? 0 : one;
-    one = halfUlp > ~(<u64>0) - dotOne ? 10 : one;
-
-    setDecimalResult(integral, one, decExp);
-    return;
-  }
-
-  const decExp = ((expField - DOUBLE_EXP_OFFSET) * 78913) >> 18;
-  const powExp = -decExp - 1;
-  const h = q + ((powExp * 217707) >> 16);
-  const shift = h + 1 + EXTRA_SHIFT;
-
-  loadPow10Xjb64(powExp);
-  const pHi = gPow10Hi, pLo = gPow10Lo;
-  const y = c << shift;
-
-  const a = mulhi64(pHi, y);
-  const plo64 = pHi * y;
-  const lo = plo64 + mulhi64(pLo, y);
-  const p_hi = a + u64(lo < plo64);
-
-  const integral = p_hi >> EXTRA_SHIFT;
-  const dotOne = (p_hi << (64 - EXTRA_SHIFT)) | (lo >> EXTRA_SHIFT);
-  const halfUlp = (pHi >> (-h)) + <u64>(1 - (c & 1));
-
-  let one = umul128AddHi64(dotOne, 10, dotOne == ((<u64>1) << 62) ? 0 : BIASED_HALF);
-  one = dotOne < halfUlp ? 0 : one;
-  one = ~(<u64>0) - dotOne < halfUlp ? 10 : one;
-
-  setDecimalResult(integral, one, decExp);
-}
-
-const FLOAT_EXP_OFFSET = 150; // exp_bias(127) + num_sig_bits(23)
-const FLOAT_EXTRA_SHIFT = 34;
-
-// @ts-expect-error: decorator
-@inline export function toDecimalFloat(binSig: u64, rawExp: i32, regular: bool): void {
-  const binExp = rawExp - FLOAT_EXP_OFFSET;
-
-  if (!regular) return decodeIrregular(binSig, binExp);
-
-  const decExp = computeDecExp(binExp);
-  const shift = computeExpShift(binExp, decExp + 1) + FLOAT_EXTRA_SHIFT;
-  const even = <u64>(1 - (binSig & 1));
-
-  loadPow10(-decExp - 1);
-  const pow10Hi = gPow10Hi;
-  const p = mulhi64(pow10Hi + 1, binSig << shift);
-
-  let integral = <i64>(p >> FLOAT_EXTRA_SHIFT);
-  const fractional = p & (((<u64>1) << FLOAT_EXTRA_SHIFT) - 1);
-
-  const half_ulp = (pow10Hi >> (65 - shift)) + even;
-  const round_up = (fractional + half_ulp) >> FLOAT_EXTRA_SHIFT != 0;
-  const round_down = half_ulp > fractional;
-  integral += i64(round_up);
-
-  let digit = <i32>(((fractional * 10 + ((<u64>1) << (FLOAT_EXTRA_SHIFT - 1))) >> FLOAT_EXTRA_SHIFT));
-  if (fractional == (<u64>1) << (FLOAT_EXTRA_SHIFT - 2)) digit = 2; // round 2.5 to 2
-
-  gSig = integral;
-  gExp = decExp;
-  gLastDigit = digit;
-  gHasLastDigit = !(round_up || round_down);
-}
-
-const DOUBLE_MAX_DIGITS10 = 17;
-// ECMAScript Number::toString uses fixed notation when the decimal point
-// position n is in [-5, 21]; with decExp = n - 1 that is decExp in [-6, 20].
-const MIN_FIXED_DEC_EXP = -6;
-const DOUBLE_MAX_FIXED_DEC_EXP = 20;
-
-export const FLOAT_MAX_DIGITS10 = 9;
-const FLOAT_MAX_FIXED_DEC_EXP = 20;
+export const DOUBLE_EXP_OFFSET = 1075; // exp_bias(1023) + num_sig_bits(52)
+export const EXTRA_SHIFT = 6;
+export const BIASED_HALF: u64 = ((<u64>1) << 63) + 6;
+export const DOUBLE_MAX_DIGITS10 = 17;
+// Fixed notation when decExp (= decimal-point position - 1) is in [-6, 20].
+export const MIN_FIXED_DEC_EXP = -6;
+export const MAX_FIXED_DEC_EXP = 20;
 
 // Eight packed ASCII digits in a u64 -> 8 UTF-16 code units (16 bytes) at
 // `p + off`. SIMD zero-extends the bytes to u16 lanes in one store.
 // @ts-expect-error: decorator
-@inline function putBlock8(p: usize, ascii: u64, off: usize = 0): void {
+@inline export function putBlock8(p: usize, ascii: u64, off: usize = 0): void {
   const base = p + off;
   if (HAS_SIMD) {
     v128.store(base, i16x8.extend_low_i8x16_u(i64x2.splat(ascii)));
@@ -728,245 +900,80 @@ const FLOAT_MAX_FIXED_DEC_EXP = 20;
 
 // ECMAScript spellings for the non-finite cases.
 // @ts-expect-error: decorator
-@inline function writeNaN(buf: usize): usize {
-  store<u16>(buf, 0x4e); // 'N'
-  store<u16>(buf, 0x61, 2); // 'a'
-  store<u16>(buf, 0x4e, 4); // 'N'
+@inline export function writeNaN(buf: usize): usize {
+  store<u16>(buf, 0x4e); store<u16>(buf, 0x61, 2); store<u16>(buf, 0x4e, 4); // "NaN"
   return buf + 6;
 }
+
 // @ts-expect-error: decorator
-@inline function writeInfinity(buf: usize, neg: bool): usize {
-  if (neg) { store<u16>(buf, 0x2d); buf += 2; } // '-'
+@inline export function writeInfinity(buf: usize, neg: bool): usize {
+  if (neg) { store<u16>(buf, 0x2d); buf += 2; }
   putBlock8(buf, 0x7974696e69666e49); // "Infinity" little-endian
   return buf + 16;
 }
 
+// f64 fixed-notation layout: a full 16-digit block (gDigHi:gDigLo) plus a 17th
+// digit (always, so no leading-'0' fold or bcdSize param like the f32 path).
 // @ts-expect-error: decorator
-@inline function decimalLen17(v: u64): i32 {
-  if (v < 100000000) {
-    if (v < 10000) {
-      if (v < 100) return v < 10 ? 1 : 2;
-      return v < 1000 ? 3 : 4;
-    }
-    if (v < 1000000) return v < 100000 ? 5 : 6;
-    return v < 10000000 ? 7 : 8;
-  }
-  if (v < 1000000000000) {
-    if (v < 10000000000) return v < 1000000000 ? 9 : 10;
-    return v < 100000000000 ? 11 : 12;
-  }
-  if (v < 10000000000000000) {
-    if (v < 100000000000000) return v < 10000000000000 ? 13 : 14;
-    return v < 1000000000000000 ? 15 : 16;
-  }
-  return 17;
-}
-
-// Re-shape the xjb64 output into the 16-digit / 16+1-digit representation the
-// existing formatter expects, without the old repeated multiply loop.
-// @ts-expect-error: decorator
-@inline function normalizeDoubleShortest(): void {
-  const full = <u64>gSig * 10 + <u64>(gHasLastDigit ? gLastDigit : 0);
-  const digits = decimalLen17(full);
-  if (digits <= 16) {
-    const scale = 16 - digits;
-    const mul = load<u64>(POW10_SMALL + (<usize>scale << 3));
-    gSig = <i64>(full * mul);
-    gExp -= scale + 1;
-    gLastDigit = 0;
-    gHasLastDigit = false;
-    return;
-  }
-  const q = <i64>(full / 10);
-  gSig = q;
-  gLastDigit = <i32>(full - <u64>q * 10);
-  gHasLastDigit = gLastDigit != 0;
-}
-
-// @ts-expect-error: decorator
-@inline function formatDouble(buf: usize, value: f64): usize {
-  const bits = reinterpret<u64>(value);
-  const binExp = <i32>((bits << 1) >> 53); // 11 exponent bits
-  const binSig = bits & (((<u64>1) << 52) - 1); // 52 significand bits
-
-  const neg = bits >> 63 != 0;
-  const threshold: u64 = 1000000000000000; // 1e15
-  const expMask = 2047;
-
-  // is_normal: 1 <= bin_exp <= 2046
-  const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
-  if (!isNormal) {
-    if (binExp != 0) {
-      if (binSig != 0) return writeNaN(buf);
-      return writeInfinity(buf, neg);
-    }
-    if (binSig == 0) { store<u16>(buf, 0x30); return buf + 2; } // +/-0 -> "0"
-  }
-
-  if (neg) { store<u16>(buf, 0x2d); buf += 2; }
-  toDecimalDouble(binSig, isNormal ? binExp : 0, isNormal ? binSig != 0 : true);
-  if (<u64>gSig < threshold) normalizeDoubleShortest();
-
-  const hasLastDigit = gHasLastDigit;
-  const hasExtraDigit = <u64>gSig >= threshold;
-  const decExp = gExp + DOUBLE_MAX_DIGITS10 - 2 + i32(hasExtraDigit);
-
-  const start = buf;
-  toDigits64(<u64>gSig);
-  if (decExp >= MIN_FIXED_DEC_EXP && decExp <= DOUBLE_MAX_FIXED_DEC_EXP) {
-    return writeFixed(buf, start, decExp, hasLastDigit, hasExtraDigit, 16);
-  }
-  return writeExpNotation(buf, start, decExp, hasLastDigit, hasExtraDigit, 16);
-}
-
-// @ts-expect-error: decorator
-@inline function formatFloat(buf: usize, value: f32): usize {
-  const bits = reinterpret<u32>(value);
-  const binExp = <i32>((bits << 1) >> 24); // 8 exponent bits
-  const binSig = <u64>(bits & (((<u32>1) << 23) - 1)); // 23 significand bits
-
-  const neg = bits >> 31 != 0;
-  const threshold: u64 = 10000000; // 1e7
-  const expMask = 255;
-
-  const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
-  if (!isNormal) {
-    if (binExp != 0) {
-      if (binSig != 0) return writeNaN(buf);
-      return writeInfinity(buf, neg);
-    }
-    if (binSig == 0) { store<u16>(buf, 0x30); return buf + 2; } // +/-0 -> "0"
-    // subnormal
-    if (neg) { store<u16>(buf, 0x2d); buf += 2; }
-    toDecimalFloat(binSig, 1, true);
-    let decSig = gSig * 10 + (gHasLastDigit ? gLastDigit : 0);
-    let decExp = gExp;
-    while (<u64>decSig < threshold) {
-      decSig *= 10;
-      --decExp;
-    }
-    const q = <i64>(<u64>decSig / 10);
-    const last = <i32>(decSig - q * 10);
-    gSig = q;
-    gExp = decExp;
-    gLastDigit = last;
-    gHasLastDigit = last != 0;
-  } else {
-    if (neg) { store<u16>(buf, 0x2d); buf += 2; }
-    toDecimalFloat(binSig | ((<u64>1) << 23), binExp, binSig != 0);
-  }
-
-  let hasLastDigit = gHasLastDigit;
-  const hasExtraDigit = <u64>gSig >= threshold;
-  let decExp = gExp + FLOAT_MAX_DIGITS10 - 2 + i32(hasExtraDigit);
-
-  // Float-specific fixup: pull a digit up when the significand is too short.
-  if (<u64>gSig < 1000000) {
-    gSig = 10 * gSig + (hasLastDigit ? gLastDigit : 0);
-    hasLastDigit = false;
-    --decExp;
-  }
-
-  const start = buf;
-  toDigits32(<u64>gSig);
-
-  if (decExp >= MIN_FIXED_DEC_EXP && decExp <= FLOAT_MAX_FIXED_DEC_EXP)
-    return writeFixed(buf, start, decExp, hasLastDigit, hasExtraDigit, 8);
-  return writeExpNotation(buf, start, decExp, hasLastDigit, hasExtraDigit, 8);
-}
-
-// @ts-expect-error: decorator
-@inline function writeFixed(
+@inline export function writeFixed(
   buf: usize,
   start: usize,
   decExp: i32,
   hasLastDigit: bool,
-  hasExtraDigit: bool,
-  bcdSize: i32,
 ): usize {
   if (decExp < 0) putBlock8(start, ZEROS);
   const lastDigitChar = <u64>(0x30 + (hasLastDigit ? gLastDigit : 0));
-  const numDigits = hasLastDigit ? bcdSize : gDigNum - 1;
+  const numDigits = hasLastDigit ? 16 : gDigNum - 1;
+  const dHi = gDigHi, dLo = gDigLo;
 
-  // Normalize in-register: when !hasExtraDigit the field carries exactly one
-  // leading '0' (gSig has bcdSize - 1 significant digits) - shift it out and fold
-  // the last digit into the freed low slot, so the block is exactly bcdSize
-  // chars and needs no leading-zero memmove. With hasExtraDigit the field is
-  // already full and the last digit is a separate (bcdSize + 1)th char.
-  let dHi = gDigHi, dLo = gDigLo;
-  if (!hasExtraDigit) {
-    if (bcdSize == 16) {
-      dHi = (dHi >> 8) | (dLo << 56);
-      dLo = (dLo >> 8) | ((<u64>lastDigitChar) << 56);
-    } else {
-      dHi = (dHi >> 8) | ((<u64>lastDigitChar) << 56);
-    }
-  }
-
-  // When the decimal point falls at or past the last significant digit
-  // (decExp >= bcdSize), the value is an integer rendered as the significant
-  // digits followed by trailing zeros with *no* decimal point.
-  if (decExp >= bcdSize) {
+  // decExp >= 16: integer rendered as significant digits then trailing zeros.
+  if (decExp >= 16) {
     putBlock8(buf, dHi);
-    if (bcdSize == 16) putBlock8(buf, dLo, 16);
-    if (hasExtraDigit) store<u16>(buf + (bcdSize << 1), <u32>lastDigitChar);
-    const sig = bcdSize + i32(hasExtraDigit);
+    putBlock8(buf, dLo, 16);
+    store<u16>(buf + 32, <u32>lastDigitChar);
     const endByte = buf + ((decExp + 1) << 1);
-    for (let z = buf + (sig << 1); z < endByte; z += 16) putBlock8(z, ZEROS);
+    for (let z = buf + (17 << 1); z < endByte; z += 16) putBlock8(z, ZEROS);
     return endByte;
   }
 
-  // Total output length in chars (computed up front so the fractional store
-  // below can skip a block that lies entirely past the end - see fLo guard).
-  const n = numDigits + i32(hasExtraDigit);
-  const endPos = decExp >= 0 ? (n > decExp + 1 ? n + 1 : decExp + 1) : n;
+  // Everything reaching here has a fractional part (exact integers < 1e16 are
+  // absorbed by writeUInt16 upstream), so n > decExp + 1 and output is "int.frac".
+  const n = numDigits + 1;
+  const endPos = decExp >= 0 ? n + 1 : n;
 
-  // fixed_layout entry, computed on the fly (positions are in characters).
-  // Branchless (Bit Twiddling Hacks): decExp >> 31 is all-ones when decExp < 0,
-  // so this is `decExp < 0 ? 1 - decExp : 0` with no select.
+  // Branchless `decExp < 0 ? 1 - decExp : 0` (decExp >> 31 is all-ones if < 0).
   const startPos = (1 - decExp) & (decExp >> 31);
 
   buf += startPos << 1;
   putBlock8(buf, dHi);
-  if (bcdSize == 16) putBlock8(buf, dLo, 16);
-  if (hasExtraDigit) store<u16>(buf + (bcdSize << 1), <u32>lastDigitChar);
+  putBlock8(buf, dLo, 16);
+  store<u16>(buf + 32, <u32>lastDigitChar);
 
   if (decExp >= 0) {
-    // Insert '.' after `k` integer digits without a memmove: the integer part
-    // [0,k) is already correct from the store above; re-store the digits
-    // shifted right by k chars to lay the fractional part at [k+1, ...), then
-    // drop '.' at position k. The shift is a scalar 128-bit (or 64-bit for f32)
-    // shift across the digit register plus the trailing extra-digit char.
-    const k = decExp + 1; // point position, in [1, bcdSize]
-    const d16: u64 = hasExtraDigit ? lastDigitChar : 0; // select beats bool-multiply here
-    const s = k << 3; // bits to shift out
+    // Place '.' after k integer digits with no memmove: re-store the digits
+    // shifted right by k chars (fractional part at [k+1,...]), then drop '.' at k.
+    const k = decExp + 1;
+    const d16: u64 = lastDigitChar;
+    const s = k << 3;
     let fHi: u64, fLo: u64;
-    if (bcdSize == 16) {
-      if (s < 64) {
-        fHi = (dHi >> s) | (dLo << (64 - s));
-        fLo = (dLo >> s) | (d16 << (64 - s));
-      } else if (s == 64) {
-        fHi = dLo; fLo = d16;
-      } else if (s < 128) {
-        const s2 = s - 64;
-        fHi = (dLo >> s2) | (d16 << (64 - s2));
-        fLo = d16 >> s2;
-      } else {
-        fHi = d16; fLo = 0;
-      }
-      putBlock8(buf + ((k + 1) << 1), fHi);
-      // fLo's 8-char window starts at char k + 9; store it only when the output
-      // actually reaches there. Skipping the otherwise-overshooting block keeps
-      // the write within the buffer bound (the skipped chars lie past endPos
-      // either way).
-      if (endPos > k + 9) putBlock8(buf + ((k + 9) << 1), fLo);
+    if (s < 64) {
+      fHi = (dHi >> s) | (dLo << (64 - s));
+      fLo = (dLo >> s) | (d16 << (64 - s));
+    } else if (s == 64) {
+      fHi = dLo; fLo = d16;
+    } else if (s < 128) {
+      const s2 = s - 64;
+      fHi = (dLo >> s2) | (d16 << (64 - s2));
+      fLo = d16 >> s2;
     } else {
-      fHi = s < 64 ? (dHi >> s) | (d16 << (64 - s)) : d16;
-      putBlock8(buf + ((k + 1) << 1), fHi);
+      fHi = d16; fLo = 0;
     }
-    store<u16>(buf + (k << 1), 0x2e); // '.'
+    putBlock8(buf + ((k + 1) << 1), fHi);
+    // fLo's window starts at char k + 9; skip it if the output ends before there.
+    if (endPos > k + 9) putBlock8(buf + ((k + 9) << 1), fLo);
+    store<u16>(buf + (k << 1), 0x2e);
   } else {
-    store<u16>(start, 0x2e, 2); // "0." prefix: point at position 1
+    store<u16>(start, 0x2e, 2); // "0." prefix
   }
 
   return buf + (endPos << 1);
@@ -975,7 +982,7 @@ const FLOAT_MAX_FIXED_DEC_EXP = 20;
 // Exponential-notation tail. Lays the mantissa "d.ddd" (single leading digit)
 // then the "e +/- d" exponent.
 // @ts-expect-error: decorator
-@inline function writeExpNotation(
+@inline export function writeExpNotation(
   buf: usize,
   start: usize,
   decExp: i32,
@@ -988,22 +995,20 @@ const FLOAT_MAX_FIXED_DEC_EXP = 20;
   if (bcdSize == 16) putBlock8(buf, gDigLo, 16);
   store<u16>(buf + (bcdSize << 1), <u32>(0x30 + gLastDigit));
   buf += (hasLastDigit ? bcdSize + 1 : gDigNum) << 1;
-  // Move the lead digit (char pos 1) to pos 0, drop '.' at pos 1.
+  // Move the lead digit to pos 0, drop '.' at pos 1.
   const lead: u32 = <u32>load<u16>(start, 2);
   store<u16>(start, lead);
   store<u16>(start, 0x2e, 2);
-  buf -= usize(buf - 2 == start + 2) << 1; // remove trailing point
+  buf -= usize(buf - 2 == start + 2) << 1; // drop a trailing point
   return writeExponent(buf, decExp);
 }
 
 // Writes "e +/- d" / "e +/- dd" / "e +/- ddd" exponent.
 // @ts-expect-error: decorator
-@inline function writeExponent(buf: usize, decExp: i32): usize {
-  // m is all-ones when decExp < 0
-  const m = decExp >> 31;
+@inline export function writeExponent(buf: usize, decExp: i32): usize {
+  const m = decExp >> 31; // all-ones if decExp < 0
   store<u16>(buf, 0x65); // 'e'
-  // '+' (0x2b) when decExp >= 0, '-' (0x2d) when < 0: m & 2 adds 2 iff negative.
-  store<u16>(buf, 0x2b + (m & 2), 2);
+  store<u16>(buf, 0x2b + (m & 2), 2); // '+' / '-' branchlessly
   buf += 4;
   const e = (decExp ^ m) - m; // abs(decExp)
   if (e >= 100) {
@@ -1029,48 +1034,11 @@ const FLOAT_MAX_FIXED_DEC_EXP = 20;
 // ~24 code units (48 bytes); the block writers can overshoot the logical end by
 // up to one 8-char block plus a 16-byte SIMD store, so 128 bytes is ample. Only
 // the logical length is copied out - the overshoot stays in SCRATCH.
-const SCRATCH = memory.data(128);
+export const SCRATCH = memory.data(128);
 
-export function dtoa(value: f64): string {
-  const bits = reinterpret<u64>(value);
-  const exp = <i32>((bits << 1) >> 53);
-  const sig = bits & (((<u64>1) << 52) - 1);
-
-  if (exp == 2047) {
-    if (sig != 0) return "NaN";
-    return bits >> 63 != 0 ? "-Infinity" : "Infinity";
-  }
-  if ((bits << 1) == 0) return "0";
-
-  const byteLen = formatDouble(SCRATCH, value) - SCRATCH;
-  // @ts-expect-error: runtime
+// @ts-expect-error: decorator
+@inline export function scratchString(byteLen: usize): string {
   const str = changetype<string>(__new(byteLen, idof<string>()));
   memory.copy(changetype<usize>(str), SCRATCH, byteLen);
   return str;
-}
-
-export function ftoa(value: f32): string {
-  const bits = reinterpret<u32>(value);
-  const exp = (bits << 1) >> 24;
-  const sig = bits & (((<u32>1) << 23) - 1);
-
-  if (exp == 255) {
-    if (sig != 0) return "NaN";
-    return bits >> 31 != 0 ? "-Infinity" : "Infinity";
-  }
-  if ((bits << 1) == 0) return "0";
-
-  const byteLen = formatFloat(SCRATCH, value) - SCRATCH;
-  // @ts-expect-error: runtime
-  const str = changetype<string>(__new(byteLen, idof<string>()));
-  memory.copy(changetype<usize>(str), SCRATCH, byteLen);
-  return str;
-}
-
-export function dtoa_buffered(buffer: usize, value: f64): u32 {
-  return <u32>((formatDouble(buffer, value) - buffer) >> 1);
-}
-
-export function ftoa_buffered(buffer: usize, value: f32): u32 {
-  return <u32>((formatFloat(buffer, value) - buffer) >> 1);
 }

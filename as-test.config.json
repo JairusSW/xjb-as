@@ -1,28 +1,43 @@
 {
-    "$schema": "./node_modules/as-test/as-test.config.schema.json",
-    "input": ["./assembly/__tests__/*.spec.ts"],
-    "outDir": "./.as-test/build",
-    "logs": "./.as-test/logs",
-    "coverageDir": "./.as-test/coverage",
-    "snapshotDir": "./.as-test/snapshots",
-    "config": "./asconfig.json",
-    "buildOptions": {
-        "target": "wasi"
-    },
-    "runOptions": {
-        "runtime": {
-            "cmd": "node ./.as-test/runners/default.wasi.js <file>"
-        }
-    },
-    "modes": {
-        "swar": {
-            "features": ["simd"],
-            "buildOptions": {
-                "args": ["--use ZMIJ_SIMD=0"]
-            }
-        },
-        "simd": {
-            "features": ["simd"]
-        }
+  "$schema": "./node_modules/as-test/as-test.config.schema.json",
+  "input": ["./assembly/__tests__/*.spec.ts"],
+  "outDir": "./.as-test/build",
+  "logs": "./.as-test/logs",
+  "coverageDir": "./.as-test/coverage",
+  "snapshotDir": "./.as-test/snapshots",
+  "config": "./asconfig.json",
+  "buildOptions": {
+    "target": "wasi"
+  },
+  "runOptions": {
+    "runtime": {
+      "cmd": "node ./.as-test/runners/default.wasi.js <file>"
     }
+  },
+  "modes": {
+    "o-simd": {
+      "features": ["simd"],
+      "buildOptions": { "args": ["--shrinkLevel 0"] }
+    },
+    "o-swar": {
+      "features": ["simd"],
+      "buildOptions": { "args": ["--shrinkLevel 0", "--use XJB_SIMD=0"] }
+    },
+    "os-simd": {
+      "features": ["simd"],
+      "buildOptions": { "args": ["--shrinkLevel 1"] }
+    },
+    "os-swar": {
+      "features": ["simd"],
+      "buildOptions": { "args": ["--shrinkLevel 1", "--use XJB_SIMD=0"] }
+    },
+    "oz-simd": {
+      "features": ["simd"],
+      "buildOptions": { "args": ["--shrinkLevel 2"] }
+    },
+    "oz-swar": {
+      "features": ["simd"],
+      "buildOptions": { "args": ["--shrinkLevel 2", "--use XJB_SIMD=0"] }
+    }
+  }
 }

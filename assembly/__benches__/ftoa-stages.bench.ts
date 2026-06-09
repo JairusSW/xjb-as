@@ -3,8 +3,8 @@
 // file for the stage definitions and how the chart derives the rest.
 
 import { bench, dumpToFile, blackbox } from "./lib/bench";
-import { ftoa, ftoa_buffered } from "../dtoa";
-import { benchCoreFloat, benchDigits32 } from "./stage-hooks";
+import { ftoa, ftoa_buffered } from "../ftoa";
+import { benchCoreFloat, benchDigits32 } from "./stage-hooks-comp";
 
 const U16 = memory.data(128);
 const SIG_STORE = memory.data(16 * 8);

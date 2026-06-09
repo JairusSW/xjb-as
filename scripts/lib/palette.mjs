@@ -1,5 +1,5 @@
 // Chart colour palette — ported from json-as/scripts/lib/palette.ts so the
-// zmij-as charts match the json-as look. Single source of truth for every chart.
+// xjb-as charts match the json-as look. Single source of truth for every chart.
 //
 // Base palette:
 //   jungle green #44AF69 · faded copper #9E7153 · strawberry red #F8333C
