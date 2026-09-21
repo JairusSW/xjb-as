@@ -172,6 +172,24 @@ export const FLOAT_MAX_DIGITS10 = 9;
   }
 }
 
+// Render an exact f32 integer without entering the shortest-decimal core.
+// The digit packer writes eight bytes; the buffered API reserves enough room.
+// @ts-expect-error: decorator
+@inline function writeSmallInteger(buf: usize, value: u32): usize {
+  toDigits32(value);
+  let len: i32;
+  if (value >= 10000) {
+    if (value >= 1000000) len = 7 + i32(value >= 10000000);
+    else len = 5 + i32(value >= 100000);
+  } else if (value >= 100) {
+    len = 3 + i32(value >= 1000);
+  } else {
+    len = 1 + i32(value >= 10);
+  }
+  putBlock8(buf, gDigHi >> ((8 - len) << 3));
+  return buf + (<usize>len << 1);
+}
+
 // ECMAScript spellings for the non-finite cases.
 // @ts-expect-error: decorator
 @inline function writeNaN(buf: usize): usize {
@@ -369,6 +387,20 @@ const SCRATCH = memory.data(128);
     gHasLastDigit = last != 0;
   } else {
     if (neg) { store<u16>(buf, 0x2d); buf += 2; }
+    const q = binExp - FLOAT_EXP_OFFSET;
+    if (q >= -23 && q < 24) {
+      const c = binSig | ((<u64>1) << 23);
+      let intValue: u64 = 0;
+      if (q < 0) {
+        const shift = -q;
+        const mask = ((<u64>1) << shift) - 1;
+        if ((c & mask) == 0) intValue = c >> shift;
+      } else {
+        intValue = c << q;
+        if (intValue > 16777216) intValue = 0;
+      }
+      if (intValue != 0) return writeSmallInteger(buf, <u32>intValue);
+    }
     toDecimalFloat(binSig | ((<u64>1) << 23), binExp, binSig != 0);
   }
 
