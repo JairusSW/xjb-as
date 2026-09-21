@@ -6,8 +6,8 @@ import {
   MIN_FIXED_DEC_EXP, MAX_FIXED_DEC_EXP,
   gPow10Hi, gPow10Lo, loadPow10Xjb64, loadPow10HiXjb64,
   gSig, gExp, gLastDigit, gHasLastDigit,
-  toDigits64, POW10_SMALL, DIGIT_PAIRS,
-  writeNaN, writeInfinity, writeFixed, writeExpNotation, SCRATCH, scratchString,
+  toDigits64, gDigHi, gDigLo, HAS_SIMD, POW10_SMALL, DIGIT_PAIRS,
+  putBlock8, writeNaN, writeInfinity, writeFixed, writeExpNotation, SCRATCH, scratchString,
 } from "./xjb";
 
 // @ts-expect-error: decorator
@@ -136,6 +136,13 @@ import {
 // @ts-expect-error: decorator
 @inline function writeUInt16(buf: usize, value: u64): usize {
   const len = decimalLen16(value);
+  if (HAS_SIMD && value >= 100000000) {
+    toDigits64(value, false);
+    const prefix = len - 8;
+    putBlock8(buf, gDigHi >> ((8 - prefix) << 3));
+    putBlock8(buf + (<usize>prefix << 1), gDigLo);
+    return buf + (<usize>len << 1);
+  }
   let p = buf + (<usize>len << 1);
   let v = value;
   while (v >= 100) {

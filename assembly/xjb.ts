@@ -807,7 +807,7 @@ export let gDigNum: i32 = 0;
 
 // SIMD version of toDigits64: builds all 16 ASCII digits in one pass.
 // @ts-expect-error: decorator
-@inline function toDigits64Simd(value: u64): void {
+@inline function toDigits64Simd(value: u64, countDigits: bool = true): void {
   const hi = value / 100000000;
   const lo = value - hi * 100000000;
 
@@ -820,8 +820,10 @@ export let gDigNum: i32 = 0;
 
   const bcd = toBcd4x4(y);
 
-  const mask = i8x16.bitmask(i8x16.gt_s(bcd, i8x16.splat(0)));
-  gDigNum = 16 - ctz(mask); // mask is never 0 (significand >= 1)
+  if (countDigits) {
+    const mask = i8x16.bitmask(i8x16.gt_s(bcd, i8x16.splat(0)));
+    gDigNum = 16 - ctz(mask); // mask is never 0 (significand >= 1)
+  }
 
   const ascii = v128.or(
     v128.swizzle(bcd, i8x16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)),
@@ -850,8 +852,8 @@ export let gDigNum: i32 = 0;
 }
 
 // @ts-expect-error: decorator
-@inline export function toDigits64(value: u64): void {
-  if (HAS_SIMD) return toDigits64Simd(value);
+@inline export function toDigits64(value: u64, countDigits: bool = true): void {
+  if (HAS_SIMD) return toDigits64Simd(value, countDigits);
   toDigits64Swar(value);
 }
 
