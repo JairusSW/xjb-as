@@ -97,25 +97,15 @@ function toBcd8(abcdefgh: u64): void {
 export let gDigHi: u64 = 0;
 export let gDigNum: i32 = 0;
 
-// Unsigned 16-bit multiply-high across all 8 lanes (= _mm_mulhi_epu16).
-// @ts-expect-error: decorator
-@inline function mulhiU16(a: v128, b: v128): v128 {
-  const lo = i32x4.shr_u(i32x4.extmul_low_i16x8_u(a, b), 16);
-  const hi = i32x4.shr_u(i32x4.extmul_high_i16x8_u(a, b), 16);
-  return i16x8.narrow_i32x4_u(lo, hi);
-}
-
 // Converts four 4-digit values (one per i32 lane) into 16 BCD bytes, where byte
 // i holds the 10**i digit.
 // @ts-expect-error: decorator
 @inline function toBcd4x4(y: v128): v128 {
-  const div100 = i32x4.splat(<i32>DIV100_SIG); // 5243
-  const div10v = i16x8.splat(6554); // (1 << 16) / 10 + 1
-  const neg100v = i32x4.splat(65436); // (1 << 16) - 100
-  const neg10v = i16x8.splat(246); // (1 << 8) - 10
-  const t = i32x4.shr_u(mulhiU16(y, div100), 3);
-  const z = i32x4.add(y, i32x4.mul(neg100v, t));
-  return i16x8.add(z, i16x8.mul(neg10v, mulhiU16(z, div10v)));
+  // Products fit in their lanes because y <= 9999 and each pair <= 99.
+  const hundreds = i32x4.shr_u(i32x4.mul(y, i32x4.splat(5243)), 19);
+  const pairs = i32x4.add(y, i32x4.mul(hundreds, i32x4.splat(65436)));
+  const tens = i16x8.shr_u(i16x8.mul(pairs, i16x8.splat(103)), 10);
+  return i16x8.add(pairs, i16x8.mul(tens, i16x8.splat(246)));
 }
 
 // @ts-expect-error: decorator
