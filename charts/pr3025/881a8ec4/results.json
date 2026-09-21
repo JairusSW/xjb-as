@@ -1,0 +1,228 @@
+{
+  "meta": {
+    "main": "as-pr3025-perf-main.wasm",
+    "pr": "as-pr3025-perf-head.wasm",
+    "node": "v24.18.0",
+    "v8": "13.6.233.17-node.50",
+    "arch": "x64",
+    "cpu": "AMD Ryzen 7 7800X3D 8-Core Processor",
+    "flags": "asc -O3 --enable simd --runtime incremental",
+    "method": "paired median of 11 trials; 1000000 buffered or 100000 allocating conversions per trial; identical xjb-as dtoa-comp/ftoa-comp buckets"
+  },
+  "rows": {
+    "f64": {
+      "zero-special": {
+        "buffered": {
+          "main": 1.15527,
+          "pr": 2.763431,
+          "mainChecksum": 5000000,
+          "prChecksum": 5000000
+        },
+        "alloc": {
+          "main": 1.54563,
+          "pr": 1.53231,
+          "mainChecksum": 500000,
+          "prChecksum": 500000
+        }
+      },
+      "tiny-fixed": {
+        "buffered": {
+          "main": 26.632977,
+          "pr": 9.732266,
+          "mainChecksum": 4625000,
+          "prChecksum": 4625000
+        },
+        "alloc": {
+          "main": 62.55132,
+          "pr": 47.60017,
+          "mainChecksum": 462500,
+          "prChecksum": 462500
+        }
+      },
+      "fixed-fractions": {
+        "buffered": {
+          "main": 35.772279,
+          "pr": 18.833326,
+          "mainChecksum": 9625000,
+          "prChecksum": 9625000
+        },
+        "alloc": {
+          "main": 72.8233,
+          "pr": 58.10719,
+          "mainChecksum": 962500,
+          "prChecksum": 962500
+        }
+      },
+      "long-fixed": {
+        "buffered": {
+          "main": 37.39158,
+          "pr": 14.884417,
+          "mainChecksum": 19125000,
+          "prChecksum": 19125000
+        },
+        "alloc": {
+          "main": 73.44729,
+          "pr": 52.77438,
+          "mainChecksum": 1912500,
+          "prChecksum": 1912500
+        }
+      },
+      "small-exponent": {
+        "buffered": {
+          "main": 37.143018,
+          "pr": 23.852914,
+          "mainChecksum": 12625000,
+          "prChecksum": 12625000
+        },
+        "alloc": {
+          "main": 72.82791,
+          "pr": 61.82784,
+          "mainChecksum": 1262500,
+          "prChecksum": 1262500
+        }
+      },
+      "large-exponent": {
+        "buffered": {
+          "main": 41.798066,
+          "pr": 26.338949,
+          "mainChecksum": 16000000,
+          "prChecksum": 16000000
+        },
+        "alloc": {
+          "main": 78.99089,
+          "pr": 64.02491,
+          "mainChecksum": 1600000,
+          "prChecksum": 1600000
+        }
+      },
+      "subnormal-boundary": {
+        "buffered": {
+          "main": 41.495881,
+          "pr": 25.702942,
+          "mainChecksum": 15625000,
+          "prChecksum": 15625000
+        },
+        "alloc": {
+          "main": 78.63051,
+          "pr": 62.86451,
+          "mainChecksum": 1562500,
+          "prChecksum": 1562500
+        }
+      },
+      "randomish": {
+        "buffered": {
+          "main": 42.192353,
+          "pr": 20.932396,
+          "mainChecksum": 16000000,
+          "prChecksum": 16000000
+        },
+        "alloc": {
+          "main": 79.39607,
+          "pr": 59.60764,
+          "mainChecksum": 1600000,
+          "prChecksum": 1600000
+        }
+      }
+    },
+    "f32": {
+      "zero-special": {
+        "buffered": {
+          "main": 1.199805,
+          "pr": 2.625088,
+          "mainChecksum": 5000000,
+          "prChecksum": 5000000
+        },
+        "alloc": {
+          "main": 1.54693,
+          "pr": 1.51518,
+          "mainChecksum": 500000,
+          "prChecksum": 500000
+        }
+      },
+      "tiny-fixed": {
+        "buffered": {
+          "main": 28.896458,
+          "pr": 13.432443,
+          "mainChecksum": 4250000,
+          "prChecksum": 4250000
+        },
+        "alloc": {
+          "main": 64.66282,
+          "pr": 50.91075,
+          "mainChecksum": 425000,
+          "prChecksum": 425000
+        }
+      },
+      "fixed-fractions": {
+        "buffered": {
+          "main": 34.238719,
+          "pr": 19.259103,
+          "mainChecksum": 5750000,
+          "prChecksum": 5750000
+        },
+        "alloc": {
+          "main": 70.7155,
+          "pr": 58.22061,
+          "mainChecksum": 575000,
+          "prChecksum": 575000
+        }
+      },
+      "small-exponent": {
+        "buffered": {
+          "main": 34.182461,
+          "pr": 22.323613,
+          "mainChecksum": 7500000,
+          "prChecksum": 7500000
+        },
+        "alloc": {
+          "main": 70.03852,
+          "pr": 61.29163,
+          "mainChecksum": 750000,
+          "prChecksum": 750000
+        }
+      },
+      "large-exponent": {
+        "buffered": {
+          "main": 33.154172,
+          "pr": 21.424128,
+          "mainChecksum": 8375000,
+          "prChecksum": 8375000
+        },
+        "alloc": {
+          "main": 68.6028,
+          "pr": 60.15648,
+          "mainChecksum": 837500,
+          "prChecksum": 837500
+        }
+      },
+      "subnormal-boundary": {
+        "buffered": {
+          "main": 34.41868,
+          "pr": 21.187658,
+          "mainChecksum": 9000000,
+          "prChecksum": 9000000
+        },
+        "alloc": {
+          "main": 70.38357,
+          "pr": 59.66415,
+          "mainChecksum": 900000,
+          "prChecksum": 900000
+        }
+      },
+      "randomish": {
+        "buffered": {
+          "main": 35.972366,
+          "pr": 17.836344,
+          "mainChecksum": 8937500,
+          "prChecksum": 8937500
+        },
+        "alloc": {
+          "main": 72.01566,
+          "pr": 55.7405,
+          "mainChecksum": 893750,
+          "prChecksum": 893750
+        }
+      }
+    }
+  }
+}
