@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-09-23
+
+### Added
+
+- Dedicated exact-integer and fixed-width packing benchmarks.
+- Exhaustive fast-path coverage for four-digit positive and negative integers.
+
+### Changed
+
+- `dtoa` and `ftoa` allocate their result at its final size and emit exact
+  integers directly, avoiding the scratch buffer and copy.
+- Normalized f64 values use a fixed 16-digit packer and count trailing zeros in
+  the packed digits, reducing layout work without changing rounding.
+- The f32 core uses a compact exponent-to-shift table for normal values and a
+  three-step scale for subnormals.
+- SIMD decimal packing uses bounded multiply-and-shift operations; long exact
+  integers are packed in parallel.
+- The benchmark runner now works with the system Bash 3 when optional argument
+  arrays are empty.
+
 ## [0.1.0] - 2026-06-08
 
 ### Added
@@ -44,3 +64,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   added Apache-2.0 notice files for the xjb-derived implementations.
 
 [0.1.0]: https://github.com/JairusSW/xjb-as/releases/tag/v0.1.0
+[0.2.0]: https://github.com/JairusSW/xjb-as/compare/v0.1.0...v0.2.0

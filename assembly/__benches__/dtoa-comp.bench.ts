@@ -17,6 +17,8 @@ function asciiBytes(samples: f64[]): u64 {
 }
 
 const ZERO_SPECIAL: f64[] = [0, -0, Infinity, -Infinity, NaN, 0, -0, Infinity];
+const SMALL_INTEGERS: f64[] = [1, -7, 42, -99, 100, -999, 1000, -9999];
+const LARGE_INTEGERS: f64[] = [10000, -123456, 1000000, -12345678, 99999999, -100000000, 999999999, -1000000000];
 const TINY_FIXED: f64[] = [1, -1, 0.5, -0.5, 10, 100, 1000, 1e-6];
 const FIXED_FRACTIONS: f64[] = [
   0.1, 0.2, 0.3, 0.30000000000000004, 123456.789, 43210.1,
@@ -50,6 +52,8 @@ const RANDOMISH: f64[] = [
 let current: f64[] = ZERO_SPECIAL;
 
 benchBucket("zero-special", ZERO_SPECIAL);
+benchBucket("small-integers", SMALL_INTEGERS);
+benchBucket("large-integers", LARGE_INTEGERS);
 benchBucket("tiny-fixed", TINY_FIXED);
 benchBucket("fixed-fractions", FIXED_FRACTIONS);
 benchBucket("long-fixed", LONG_FIXED);

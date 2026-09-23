@@ -291,7 +291,11 @@ build_v8() {
   local file="$1"
   local output="$2"
 
-  npx asc "$file" -o "${output}.tmp" -O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --enable bulk-memory --enable simd --exportStart start --exportRuntime "${MEMORY_ASC_ARGS[@]}"
+  if [[ $BENCH_MEMORY -eq 1 ]]; then
+    npx asc "$file" -o "${output}.tmp" -O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --enable bulk-memory --enable simd --exportStart start --exportRuntime "${MEMORY_ASC_ARGS[@]}"
+  else
+    npx asc "$file" -o "${output}.tmp" -O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --enable bulk-memory --enable simd --exportStart start --exportRuntime
+  fi
   optimize_or_fallback "${output}.tmp" "$output" "${WASM_OPT_FLAGS[@]}"
 }
 
@@ -300,7 +304,11 @@ build_wasi() {
   local output="$2"
   local runtime_flag="$3"
 
-  npx asc "$file" -o "${output}.tmp" -O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --config ./node_modules/@assemblyscript/wasi-shim/asconfig.json --use "$runtime_flag=1" --enable bulk-memory --enable simd --enable sign-extension --exportRuntime "${MEMORY_ASC_ARGS[@]}"
+  if [[ $BENCH_MEMORY -eq 1 ]]; then
+    npx asc "$file" -o "${output}.tmp" -O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --config ./node_modules/@assemblyscript/wasi-shim/asconfig.json --use "$runtime_flag=1" --enable bulk-memory --enable simd --enable sign-extension --exportRuntime "${MEMORY_ASC_ARGS[@]}"
+  else
+    npx asc "$file" -o "${output}.tmp" -O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --config ./node_modules/@assemblyscript/wasi-shim/asconfig.json --use "$runtime_flag=1" --enable bulk-memory --enable simd --enable sign-extension --exportRuntime
+  fi
   optimize_or_fallback "${output}.tmp" "$output" --enable-sign-ext "${WASM_OPT_FLAGS_WASI[@]}"
 }
 

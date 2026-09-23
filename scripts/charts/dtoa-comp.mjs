@@ -20,6 +20,8 @@ const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
 // nsPerOp can be normalized to ns per single conversion.
 const BUCKETS_F64 = [
     ["zero-special", "zero/special", 8],
+    ["small-integers", "small integers", 8],
+    ["large-integers", "large integers", 8],
     ["tiny-fixed", "tiny fixed", 8],
     ["fixed-fractions", "fixed fractions", 8],
     ["long-fixed", "long fixed", 8],
@@ -30,6 +32,8 @@ const BUCKETS_F64 = [
 ];
 const BUCKETS_F32 = [
     ["zero-special", "zero/special", 8],
+    ["small-integers", "small integers", 8],
+    ["large-integers", "large integers", 8],
     ["tiny-fixed", "tiny fixed", 8],
     ["fixed-fractions", "fixed fractions", 8],
     ["small-exponent", "small exponent", 8],
@@ -79,7 +83,7 @@ if (Object.values(f64).some((g) => Object.keys(g).length)) {
             subtitle: sub,
         }),
         withRuntime("./charts/dtoa-comp-f64.png"),
-        { width: 1600, height: 800 },
+        { width: 1900, height: 800 },
     );
 }
 
@@ -92,6 +96,6 @@ if (Object.values(f32).some((g) => Object.keys(g).length)) {
             subtitle: sub,
         }),
         withRuntime("./charts/dtoa-comp-f32.png"),
-        { width: 1600, height: 800 },
+        { width: 1900, height: 800 },
     );
 }

@@ -857,6 +857,14 @@ export let gDigNum: i32 = 0;
   toDigits64Swar(value);
 }
 
+// Pack a zero-padded 16-digit block without computing its logical length on
+// the SIMD path. Normalized f64 significands always occupy all 16 positions.
+// @ts-expect-error: decorator
+@inline export function toDigits64Fixed16(value: u64): void {
+  if (HAS_SIMD) return toDigits64Simd(value, false);
+  toDigits64Swar(value);
+}
+
 // to_decimal_result
 export let gSig: i64 = 0;
 export let gExp: i32 = 0;
@@ -870,6 +878,13 @@ export const DOUBLE_MAX_DIGITS10 = 17;
 // Fixed notation when decExp (= decimal-point position - 1) is in [-6, 20].
 export const MIN_FIXED_DEC_EXP = -6;
 export const MAX_FIXED_DEC_EXP = 20;
+
+// @ts-expect-error: decorator
+@inline function packedTrailingZeros16(high: u64, low: u64): i32 {
+  let count = <i32>(clz<u64>(low ^ ZEROS) >> 3);
+  if (count == 8) count += <i32>(clz<u64>(high ^ ZEROS) >> 3);
+  return count;
+}
 
 // Eight packed ASCII digits in a u64 -> 8 UTF-16 code units (16 bytes) at
 // `p + off`. SIMD zero-extends the bytes to u16 lanes in one store.
@@ -915,7 +930,7 @@ export const MAX_FIXED_DEC_EXP = 20;
 ): usize {
   if (decExp < 0) putBlock8(start, ZEROS);
   const lastDigitChar = <u64>(0x30 + (hasLastDigit ? gLastDigit : 0));
-  const numDigits = hasLastDigit ? 16 : gDigNum - 1;
+  const numDigits = hasLastDigit ? 16 : 15;
   const dHi = gDigHi, dLo = gDigLo;
 
   // decExp >= 16: integer rendered as significant digits then trailing zeros.
@@ -968,7 +983,10 @@ export const MAX_FIXED_DEC_EXP = 20;
     store<u16>(start, 0x2e, 2); // "0." prefix
   }
 
-  return buf + (endPos << 1);
+  let end = buf + (endPos << 1);
+  if (!hasLastDigit) end -= <usize>packedTrailingZeros16(dHi, dLo) << 1;
+  if (load<u16>(end - 2) == 0x2e) end -= 2;
+  return end;
 }
 
 // Exponential-notation tail. Lays the mantissa "d.ddd" (single leading digit)
@@ -986,7 +1004,8 @@ export const MAX_FIXED_DEC_EXP = 20;
   putBlock8(buf, gDigHi);
   if (bcdSize == 16) putBlock8(buf, gDigLo, 16);
   store<u16>(buf + (bcdSize << 1), <u32>(0x30 + gLastDigit));
-  buf += (hasLastDigit ? bcdSize + 1 : gDigNum) << 1;
+  buf += (bcdSize + i32(hasLastDigit)) << 1;
+  if (!hasLastDigit) buf -= <usize>packedTrailingZeros16(gDigHi, gDigLo) << 1;
   // Move the lead digit to pos 0, drop '.' at pos 1.
   const lead: u32 = <u32>load<u16>(start, 2);
   store<u16>(start, lead);

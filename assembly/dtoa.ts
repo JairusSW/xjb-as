@@ -2,11 +2,11 @@
 // doubles; shared machinery lives in xjb.ts.
 import {
   mulhi64, umul128AddHi64, computeDecExp, computeExpShift,
-  EXTRA_SHIFT, DOUBLE_EXP_OFFSET, BIASED_HALF, DOUBLE_MAX_DIGITS10,
+  EXTRA_SHIFT, DOUBLE_EXP_OFFSET, BIASED_HALF,
   MIN_FIXED_DEC_EXP, MAX_FIXED_DEC_EXP,
   gPow10Hi, gPow10Lo, loadPow10Xjb64, loadPow10HiXjb64,
   gSig, gExp, gLastDigit, gHasLastDigit,
-  toDigits64, gDigHi, gDigLo, HAS_SIMD, POW10_SMALL, DIGIT_PAIRS,
+  toDigits64, toDigits64Fixed16, gDigHi, gDigLo, HAS_SIMD, POW10_SMALL, DIGIT_PAIRS,
   putBlock8, writeNaN, writeInfinity, writeFixed, writeExpNotation, SCRATCH, scratchString,
 } from "./xjb";
 
@@ -164,6 +164,22 @@ import {
 }
 
 // @ts-expect-error: decorator
+@inline function integerString(value: i32): string {
+  const negative = value < 0;
+  const magnitude = <u64>(negative ? -value : value);
+  const digits = decimalLen16(magnitude);
+  // @ts-expect-error: runtime
+  const result = changetype<string>(__new(<usize>(digits + i32(negative)) << 1, idof<string>()));
+  let out = changetype<usize>(result);
+  if (negative) {
+    store<u16>(out, 0x2d);
+    out += 2;
+  }
+  writeUInt16(out, magnitude);
+  return result;
+}
+
+// @ts-expect-error: decorator
 @inline function normalizeDoubleShortest(): void {
   const full = <u64>gSig * 10 + <u64>(gHasLastDigit ? gLastDigit : 0);
   if (full >= 1000000000000000) {
@@ -222,13 +238,12 @@ import {
   if (<u64>gSig < threshold) normalizeDoubleShortest();
 
   const hasLastDigit = gHasLastDigit;
-  const hasExtraDigit = <u64>gSig >= threshold;
-  const decExp = gExp + DOUBLE_MAX_DIGITS10 - 2 + i32(hasExtraDigit);
+  const decExp = gExp + 16;
   const start = buf;
-  toDigits64(<u64>gSig);
+  toDigits64Fixed16(<u64>gSig);
   if (decExp >= MIN_FIXED_DEC_EXP && decExp <= MAX_FIXED_DEC_EXP)
     return writeFixed(buf, start, decExp, hasLastDigit);
-  return writeExpNotation(buf, start, decExp, hasLastDigit, hasExtraDigit, 16);
+  return writeExpNotation(buf, start, decExp, hasLastDigit, true, 16);
 }
 
 // @ts-expect-error: decorator
@@ -249,6 +264,12 @@ export function dtoa(value: f64): string {
     return bits >> 63 != 0 ? "-Infinity" : "Infinity";
   }
   if ((bits << 1) == 0) return "0";
+
+  const magnitude = bits & 0x7fffffffffffffff;
+  if (magnitude >= 0x3ff0000000000000 && magnitude <= 0x41cdcd6500000000) {
+    const integer = <i32>value;
+    if (value == <f64>integer) return integerString(integer);
+  }
 
   return scratchString(formatDecodedDouble(SCRATCH, bits, exp, sig) - SCRATCH);
 }

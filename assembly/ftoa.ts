@@ -180,6 +180,44 @@ export const FLOAT_MAX_DIGITS10 = 9;
   return buf + (<usize>len << 1);
 }
 
+// @ts-expect-error: decorator
+@inline function integerString(value: i32): string {
+  const negative = value < 0;
+  let magnitude = <u32>(negative ? -value : value);
+  let digits: i32;
+  if (magnitude >= 10000) {
+    digits = magnitude >= 1000000 ? 7 + i32(magnitude >= 10000000) : 5 + i32(magnitude >= 100000);
+  } else if (magnitude >= 100) {
+    digits = 3 + i32(magnitude >= 1000);
+  } else {
+    digits = 1 + i32(magnitude >= 10);
+  }
+  // @ts-expect-error: runtime
+  const result = changetype<string>(__new(<usize>(digits + i32(negative)) << 1, idof<string>()));
+  let start = changetype<usize>(result);
+  if (negative) {
+    store<u16>(start, 0x2d);
+    start += 2;
+  }
+  let out = start + (<usize>digits << 1);
+  while (magnitude >= 100) {
+    const quotient = magnitude / 100;
+    const pair = <u32>load<u16>(DIGIT_PAIRS + (<usize>(magnitude - quotient * 100) << 1));
+    out -= 4;
+    store<u16>(out, pair & 0xff);
+    store<u16>(out, pair >> 8, 2);
+    magnitude = quotient;
+  }
+  if (magnitude >= 10) {
+    const pair = <u32>load<u16>(DIGIT_PAIRS + (<usize>magnitude << 1));
+    store<u16>(start, pair & 0xff);
+    store<u16>(start, pair >> 8, 2);
+  } else {
+    store<u16>(start, 0x30 + magnitude);
+  }
+  return result;
+}
+
 // ECMAScript spellings for the non-finite cases.
 // @ts-expect-error: decorator
 @inline function writeNaN(buf: usize): usize {
@@ -422,6 +460,12 @@ export function ftoa(value: f32): string {
     return bits >> 31 != 0 ? "-Infinity" : "Infinity";
   }
   if ((bits << 1) == 0) return "0";
+
+  const magnitude = bits & 0x7fffffff;
+  if (magnitude >= 0x3f800000 && magnitude <= 0x4b800000) {
+    const integer = <i32>value;
+    if (value == <f32>integer) return integerString(integer);
+  }
 
   return scratchString(formatDecodedFloat(SCRATCH, bits, exp, sig) - SCRATCH);
 }

@@ -11,13 +11,15 @@ const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
 
 const BUCKETS_F64 = [
-  ["zero-special", "zero/special"], ["tiny-fixed", "tiny fixed"],
+  ["zero-special", "zero/special"], ["small-integers", "small integers"],
+  ["large-integers", "large integers"], ["tiny-fixed", "tiny fixed"],
   ["fixed-fractions", "fixed fractions"], ["long-fixed", "long fixed"],
   ["small-exponent", "small exponent"], ["large-exponent", "large exponent"],
   ["subnormal-boundary", "subnormal/boundary"], ["randomish", "randomish"],
 ];
 const BUCKETS_F32 = [
-  ["zero-special", "zero/special"], ["tiny-fixed", "tiny fixed"],
+  ["zero-special", "zero/special"], ["small-integers", "small integers"],
+  ["large-integers", "large integers"], ["tiny-fixed", "tiny fixed"],
   ["fixed-fractions", "fixed fractions"], ["small-exponent", "small exponent"],
   ["large-exponent", "large exponent"], ["subnormal-boundary", "subnormal/boundary"],
   ["randomish", "randomish"],
@@ -58,7 +60,7 @@ if (Object.values(f64).some((g) => Object.keys(g).length)) {
   generateChart(
     createBarChart(f64, { ...opts, title: "dtoa (f64) throughput: xjb-as vs zmij-as vs stdlib", subtitle: sub }),
     withRuntime("./charts/dtoa-throughput-f64.png"),
-    { width: 1600, height: 800 },
+    { width: 1900, height: 800 },
   );
 }
 
@@ -67,6 +69,6 @@ if (Object.values(f32).some((g) => Object.keys(g).length)) {
   generateChart(
     createBarChart(f32, { ...opts, title: "ftoa (f32) throughput: xjb-as vs zmij-as vs stdlib", subtitle: sub }),
     withRuntime("./charts/dtoa-throughput-f32.png"),
-    { width: 1600, height: 800 },
+    { width: 1900, height: 800 },
   );
 }

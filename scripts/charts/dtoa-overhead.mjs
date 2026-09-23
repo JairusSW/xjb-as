@@ -22,6 +22,8 @@ const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
 
 const BUCKETS_F64 = [
     "zero-special",
+    "small-integers",
+    "large-integers",
     "tiny-fixed",
     "fixed-fractions",
     "long-fixed",
@@ -32,6 +34,8 @@ const BUCKETS_F64 = [
 ];
 const BUCKETS_F32 = [
     "zero-special",
+    "small-integers",
+    "large-integers",
     "tiny-fixed",
     "fixed-fractions",
     "small-exponent",
@@ -85,7 +89,7 @@ if (Object.keys(data).length) {
             labelFormatter: (v) => v.toFixed(2),
         }),
         withRuntime("./charts/dtoa-overhead.png"),
-        { width: 1700, height: 800 },
+        { width: 2100, height: 800 },
     );
 } else {
     console.warn(

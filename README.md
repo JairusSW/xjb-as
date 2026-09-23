@@ -75,6 +75,10 @@ including `Infinity`, `-Infinity`, `NaN`, `-0 → "0"`, `1e21 → "1e+21"`,
 `1e-7 → "1e-7"`, the fixed-vs-exponential thresholds, and the minimal-width
 signed exponent per [ECMAScript Specification](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-numeric-types-number-tostring).
 
+Exact integers up to `1e9` for `f64` and `2^24` for `f32` use an allocation
+path that emits directly into the final string. Other values use the same
+shortest-decimal core as the buffered API.
+
 ## API
 
 ```typescript
@@ -93,13 +97,13 @@ logical end by up to one 8-char block.
 ## Performance
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-comp-f64-wavm.png" alt="dtoa (f64) latency vs the AssemblyScript stdlib, by input complexity">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-comp-f64-v8.png" alt="dtoa (f64) latency vs the AssemblyScript stdlib, by input complexity">
 </p>
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-comp-f32-wavm.png" alt="ftoa (f32) latency vs the AssemblyScript stdlib, by input complexity">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-comp-f32-v8.png" alt="ftoa (f32) latency vs the AssemblyScript stdlib, by input complexity">
 </p>
 <p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-stages-f64-wavm.png" alt="dtoa (f64) per-stage latency breakdown">
+<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-stages-f64-v8.png" alt="dtoa (f64) per-stage latency breakdown">
 </p>
 
 Charts are published per release to the `docs` branch via `npm run charts:publish`
@@ -144,9 +148,9 @@ hi-only table) — an f32-only build never pulls in the f64 machinery.
 
 | build (`--runtime stub`, SIMD) |   `-O3` |   `-Oz` |
 | ------------------------------ | ------: | ------: |
-| `dtoa` (f64)                   | 13.4 KB |  9.0 KB |
-| `ftoa` (f32)                   |  2.9 KB |  2.9 KB |
-| both                           | 21.9 KB | 17.9 KB |
+| `dtoa` (f64)                   | 19.4 KB | 16.0 KB |
+| `ftoa` (f32)                   |  6.7 KB |  6.4 KB |
+| both                           | 23.9 KB | 19.8 KB |
 
 ## Architecture
 
@@ -160,7 +164,7 @@ Three modules under `assembly/`:
   pow10 tables + loads (full, or the compressed anchor cache at `-Oz`), the
   SIMD/SWAR digit kernel, and the UTF-16 layout writers.
 
-The formatter lays out digits per the [ECMA-262 `Number::toString` decision tree](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-numeric-types-number-tostring) and stores UTF-16 directly.
+The formatter lays out digits per the [ECMA-262 `Number::toString` decision tree](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-numeric-types-number-tostring) and stores UTF-16 directly. Normalized f64 values pack a fixed 16-digit block and derive trailing-zero length from that packed representation.
 
 ## Credits
 
