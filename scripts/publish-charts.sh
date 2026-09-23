@@ -120,7 +120,17 @@ cp -R "$TMP_CHARTS_DIR/." "$TMP_DOCS_DIR/charts/${DEST}/"
 # Re-pin the README chart <img> URLs to the version/commit just published, so a
 # README revision references the charts built from its own code. Left uncommitted.
 echo "Pinning README chart URLs to ${DEST}..."
-sed -i -E "s#(/docs/charts/)[^\"']*/([^/\"']+\.png)#\1${DEST}/\2#g" README.md
+CHART_DEST="$DEST" node --input-type=module <<'NODE'
+import fs from "node:fs";
+
+const file = "README.md";
+const readme = fs.readFileSync(file, "utf8");
+const pinned = readme.replace(
+  /(\/docs\/charts\/)[^"']*\/([^/"']+\.png)/g,
+  `$1${process.env.CHART_DEST}/$2`,
+);
+fs.writeFileSync(file, pinned);
+NODE
 
 echo "Charts published to ${REMOTE_NAME}/${DOCS_BRANCH}:charts/${DEST}/ (old folders pruned)"
 echo "README pinned to https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/${DEST}/"
