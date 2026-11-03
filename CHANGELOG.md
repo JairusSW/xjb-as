@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bounded subnormal scaling. Preserve the four public APIs and ECMAScript output.
 - Write small exact-integer strings directly into their final allocation, as in
   the PR's public number wrapper, avoiding scratch formatting and copying.
+- Reuse buffered formatters in the allocating fallback to avoid duplicated
+  formatter code and match the PR's shared-call structure.
 - Tighten the buffered API requirement to 56 bytes (28 UTF-16 code units).
 
 ### Fixed

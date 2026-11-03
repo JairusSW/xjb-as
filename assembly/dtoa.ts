@@ -195,23 +195,19 @@ import {
 }
 
 export function dtoa(value: f64): string {
-  let bits = reinterpret<u64>(value);
-  let exp = <i32>((bits << 1) >> 53);
-  let sig = bits & DOUBLE_SIGNIFICAND_MASK;
-
-  if (exp == 2047) {
-    if (sig != 0) return "NaN";
-    return bits >> 63 != 0 ? "-Infinity" : "Infinity";
+  if (value == 0) return "0";
+  if (!isFinite(value)) {
+    if (isNaN(value)) return "NaN";
+    return select<string>("-Infinity", "Infinity", value < 0);
   }
-  if ((bits << 1) == 0) return "0";
 
-  let magnitude = bits & 0x7fffffffffffffff;
+  let magnitude = reinterpret<u64>(value) & 0x7fffffffffffffff;
   if (magnitude >= 0x3ff0000000000000 && magnitude <= 0x41cdcd6500000000) {
     let integer = <i32>value;
     if (value == <f64>integer) return integerString(integer);
   }
 
-  return scratchString(formatDecodedDouble(SCRATCH, bits, exp, sig) - SCRATCH);
+  return scratchString(<usize>dtoa_buffered(SCRATCH, value) << 1);
 }
 
 export function dtoa_buffered(buffer: usize, value: f64): u32 {

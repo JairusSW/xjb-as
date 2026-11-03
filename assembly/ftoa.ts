@@ -244,23 +244,19 @@ export const FLOAT_MAX_DIGITS10 = 9;
 }
 
 export function ftoa(value: f32): string {
-  let bits = reinterpret<u32>(value);
-  let exp = <i32>((bits << 1) >> 24);
-  let sig = <u64>(bits & FLOAT_SIGNIFICAND_MASK);
-
-  if (exp == 255) {
-    if (sig != 0) return "NaN";
-    return bits >> 31 != 0 ? "-Infinity" : "Infinity";
+  if (value == 0) return "0";
+  if (!isFinite(value)) {
+    if (isNaN(value)) return "NaN";
+    return select<string>("-Infinity", "Infinity", value < 0);
   }
-  if ((bits << 1) == 0) return "0";
 
-  let magnitude = bits & 0x7fffffff;
+  let magnitude = reinterpret<u32>(value) & 0x7fffffff;
   if (magnitude >= 0x3f800000 && magnitude <= 0x4b800000) {
     let integer = <i32>value;
     if (value == <f32>integer) return integerString(integer);
   }
 
-  return scratchString(formatDecodedFloat(SCRATCH, bits, exp, sig) - SCRATCH);
+  return scratchString(<usize>ftoa_buffered(SCRATCH, value) << 1);
 }
 
 export function ftoa_buffered(buffer: usize, value: f32): u32 {
