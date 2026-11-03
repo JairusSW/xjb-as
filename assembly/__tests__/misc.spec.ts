@@ -77,3 +77,23 @@ describe("dtoa f64 power boundary core", () => {
     }
     expect(seen).not.toBe(0);
 });
+
+describe("integer string allocation boundaries", () => {
+    const values: f64[] = [
+        1, 9, 10, 99, 100, 999, 1000, 9999, 10000,
+        99999, 100000, 999999, 1000000, 9999999, 10000000,
+        99999999, 100000000, 999999999, 1000000000, 1000000001,
+    ];
+    for (let i = 0; i < values.length; ++i) {
+        const value = values[i];
+        expect(dtoa(value)).toBe(bufDtoa(value));
+        expect(dtoa(-value)).toBe(bufDtoa(-value));
+        expect(dtoa(value + 0.5)).toBe(bufDtoa(value + 0.5));
+        expect(ftoa(<f32>value)).toBe(bufFtoa(<f32>value));
+        expect(ftoa(<f32>-value)).toBe(bufFtoa(<f32>-value));
+    }
+    expect(ftoa(<f32>16777216)).toBe("16777216");
+    expect(ftoa(<f32>16777218)).toBe("16777218");
+    expect(ftoa(<f32>268435456)).toBe("268435460");
+    expect(ftoa(<f32>-268435456)).toBe("-268435460");
+});

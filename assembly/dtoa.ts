@@ -6,7 +6,7 @@ import {
   gExp, gLastDigit, gHasLastDigit, umul64hi, umul64hiCarry,
   toDecExponent, exponentShift, computePow10, toDigits64Fixed16, writeNaN,
   writeInfinity, writeFixed, writeExpNotation, scratchString,
-  decimalLen15, writeUInt16
+  decimalLen15, writeUInt16, integerString
 } from "./xjb";
 
 // @ts-ignore: decorator
@@ -204,6 +204,12 @@ export function dtoa(value: f64): string {
     return bits >> 63 != 0 ? "-Infinity" : "Infinity";
   }
   if ((bits << 1) == 0) return "0";
+
+  let magnitude = bits & 0x7fffffffffffffff;
+  if (magnitude >= 0x3ff0000000000000 && magnitude <= 0x41cdcd6500000000) {
+    let integer = <i32>value;
+    if (value == <f64>integer) return integerString(integer);
+  }
 
   return scratchString(formatDecodedDouble(SCRATCH, bits, exp, sig) - SCRATCH);
 }

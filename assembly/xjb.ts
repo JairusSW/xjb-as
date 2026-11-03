@@ -1,6 +1,8 @@
 // Shared float-formatting engine, ported from AssemblyScript PR #3025 at f97f67d.
 // Both widths share the compact power cache, digit packing, and UTF-16 writers.
 
+import { utoa32_dec_core } from "~lib/util/number";
+
 // @ts-ignore: optional compile-time override used by tests and benchmarks
 const HAS_SIMD: bool = isDefined(XJB_SIMD) ? <bool>XJB_SIMD : ASC_FEATURE_SIMD;
 
@@ -520,6 +522,46 @@ function toBcd8(value: u64): i32 {
   let str = changetype<string>(__new(byteLen, idof<string>()));
   memory.copy(changetype<usize>(str), SCRATCH, byteLen);
   return str;
+}
+
+// Exact small integers can be written into their final allocation. The callers
+// enforce the width-specific bounds where exact integer digits are shortest.
+@inline export function integerString(integer: i32): string {
+  let negative = integer < 0;
+  let magnitude = <u32>(negative ? -integer : integer);
+  let digits: u32;
+  if (magnitude < 100000) {
+    if (magnitude < 100) digits = 1 + u32(magnitude >= 10);
+    else digits = 3 + u32(magnitude >= 10000) + u32(magnitude >= 1000);
+  } else if (magnitude < 10000000) {
+    digits = 6 + u32(magnitude >= 1000000);
+  } else {
+    digits = 8 + u32(magnitude >= 1000000000) + u32(magnitude >= 100000000);
+  }
+  let result = changetype<string>(__new(<usize>(digits + u32(negative)) << 1, idof<string>()));
+  let out = changetype<usize>(result);
+  if (negative) {
+    store<u16>(out, 0x2d);
+    out += 2;
+  }
+  if (magnitude < 10) {
+    store<u16>(out, 0x30 + magnitude);
+  } else if (magnitude < 100) {
+    store<u32>(out, load<u32>(DIGITS + (<usize>magnitude << 2)));
+  } else if (magnitude < 10000) {
+    let high = magnitude / 100;
+    let low = magnitude - high * 100;
+    if (magnitude < 1000) {
+      store<u16>(out, 0x30 + high);
+      store<u32>(out + 2, load<u32>(DIGITS + (<usize>low << 2)));
+    } else {
+      store<u32>(out, load<u32>(DIGITS + (<usize>high << 2)));
+      store<u32>(out + 4, load<u32>(DIGITS + (<usize>low << 2)));
+    }
+  } else {
+    utoa32_dec_core(out, magnitude, digits);
+  }
+  return result;
 }
 // @ts-ignore: decorator
 @inline export function decimalLen15(v: u64): i32 {

@@ -4,7 +4,7 @@ import {
   gPow10Hi, gDigHi, gDigNum, gSig, gExp,
   gLastDigit, gHasLastDigit, computePow10Compact, writeUnpacked8, writeNaN,
   writeInfinity, writeExponent, scratchString, writeUInt16,
-  toDigits32
+  toDigits32, integerString
 } from "./xjb";
 
 @lazy @inline const FLOAT_EXP_OFFSET = 150; // exp_bias(127) + num_sig_bits(23)
@@ -253,6 +253,12 @@ export function ftoa(value: f32): string {
     return bits >> 31 != 0 ? "-Infinity" : "Infinity";
   }
   if ((bits << 1) == 0) return "0";
+
+  let magnitude = bits & 0x7fffffff;
+  if (magnitude >= 0x3f800000 && magnitude <= 0x4b800000) {
+    let integer = <i32>value;
+    if (value == <f32>integer) return integerString(integer);
+  }
 
   return scratchString(formatDecodedFloat(SCRATCH, bits, exp, sig) - SCRATCH);
 }
