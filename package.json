@@ -40,7 +40,7 @@
         "test": "ast test",
         "gen-spec": "node scripts/dtoa/gen-spec.mjs",
         "verify:build": "bash scripts/dtoa/build.sh",
-        "verify:matrix": "node scripts/dtoa/matrix.mjs",
+        "verify:matrix": "node --test scripts/dtoa/fuzz-cli.test.mjs && node scripts/dtoa/matrix.mjs",
         "verify": "npm run verify:matrix && npm run verify:build && node scripts/dtoa/verify.mjs",
         "fuzz": "npm run verify:build && node scripts/dtoa/fuzz.mjs",
         "fuzz:quick": "npm run verify:build && node scripts/dtoa/fuzz.mjs --runs 500000",

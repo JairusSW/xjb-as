@@ -27,22 +27,42 @@ import {
 } from "./lib/oracle.mjs";
 
 // ---- args -----------------------------------------------------------------
-function argVal(name, def) {
-    const i = process.argv.indexOf(name);
-    return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : def;
+function argumentError(message) {
+    console.error(`invalid fuzz arguments: ${message}`);
+    process.exit(2);
 }
-const hasFlag = (name) => process.argv.includes(name);
-
-const seed =
-    argVal("--seed", null) != null
-        ? Number(argVal("--seed")) >>> 0
-        : (Date.now() ^ (process.pid * 2654435761)) >>> 0 || 1;
-const runs = Number(argVal("--runs", "5000000"));
-const timeLimitMs =
-    argVal("--time", null) != null ? Number(argVal("--time")) * 1000 : Infinity;
-const maxReport = Number(argVal("--max-report", "20"));
-const doF64 = !hasFlag("--f32-only");
-const doF32 = !hasFlag("--f64-only");
+const valueFlags = new Set(["--runs", "--time", "--seed", "--max-report"]);
+const booleanFlags = new Set(["--f64-only", "--f32-only"]);
+const options = new Map();
+for (let i = 2; i < process.argv.length; ++i) {
+    const flag = process.argv[i];
+    if (options.has(flag)) argumentError(`duplicate ${flag}`);
+    if (booleanFlags.has(flag)) options.set(flag, true);
+    else if (valueFlags.has(flag)) {
+        const value = process.argv[++i];
+        if (value === undefined || value.startsWith("--") || !value.trim())
+            argumentError(`${flag} requires a value`);
+        options.set(flag, value);
+    } else argumentError(`unknown option ${flag}`);
+}
+function integerOption(flag, fallback, minimum, maximum = Number.MAX_SAFE_INTEGER) {
+    if (!options.has(flag)) return fallback;
+    const value = Number(options.get(flag));
+    if (!Number.isSafeInteger(value) || value < minimum || value > maximum)
+        argumentError(`${flag} must be an integer in [${minimum}, ${maximum}]`);
+    return value;
+}
+const seed = integerOption("--seed", ((Date.now() ^ (process.pid * 2654435761)) >>> 0) || 1, 1, 0xffffffff);
+const runs = integerOption("--runs", 5000000, 1);
+const maxReport = integerOption("--max-report", 20, 0);
+const seconds = options.has("--time") ? Number(options.get("--time")) : Infinity;
+if (options.has("--time") && (!Number.isFinite(seconds) || seconds <= 0 || !Number.isFinite(seconds * 1000)))
+    argumentError("--time must be a positive finite number of seconds");
+const timeLimitMs = seconds * 1000;
+if (options.has("--f64-only") && options.has("--f32-only"))
+    argumentError("--f64-only and --f32-only cannot be combined");
+const doF64 = !options.has("--f32-only");
+const doF32 = !options.has("--f64-only");
 const crashDir = new URL("../../.as-test/crashes/", import.meta.url);
 
 // ---- wasm -----------------------------------------------------------------

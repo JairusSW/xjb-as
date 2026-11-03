@@ -67,6 +67,19 @@ read -r -a WAVM_RUN_FLAGS_ARR <<< "$WAVM_RUN_FLAGS"
 read -r -a WASMTIME_RUN_FLAGS_ARR <<< "$WASMTIME_RUN_FLAGS"
 read -r -a WAZERO_RUN_FLAGS_ARR <<< "$WAZERO_RUN_FLAGS"
 
+# Prefer the canonical assembly benchmark when a legacy twin has the same stem.
+discover_benches() {
+  local file name
+  for file in ./assembly/__benches__/*.bench.ts; do
+    [[ -f "$file" ]] && printf '%s\n' "$file"
+  done
+  for file in ./benches/*.bench.ts; do
+    [[ -f "$file" ]] || continue
+    name="${file##*/}"
+    [[ -f "./assembly/__benches__/$name" ]] || printf '%s\n' "$file"
+  done
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --v8)
@@ -100,16 +113,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --list)
       echo "Available benches:"
-      for f in ./benches/*.bench.ts; do
-        [[ -f "$f" ]] || continue
-        b="$(basename "$f" .bench.ts)"
-        echo "  - $b"
-      done
-      for f in ./assembly/__benches__/*.bench.ts; do
-        [[ -f "$f" ]] || continue
-        b="$(basename "$f" .bench.ts)"
-        echo "  - $b"
-      done
+      while IFS= read -r file; do
+        name="${file##*/}"
+        echo "  - ${name%.bench.ts}"
+      done < <(discover_benches)
       exit 0
       ;;
     --help|-h)
@@ -123,6 +130,38 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+
+if [[ ${#ARGS[@]} -gt 0 ]]; then
+  BENCH_NAME="${ARGS[0]}"
+fi
+
+mkdir -p ./build/logs/as/{v8,wavm,wasmtime,wazero}
+
+FILES=()
+
+if [[ -n "$BENCH_NAME" ]]; then
+  [[ "$BENCH_NAME" != *.bench.ts ]] && BENCH_NAME="$BENCH_NAME.bench.ts"
+  if [[ -f "./assembly/__benches__/$BENCH_NAME" ]]; then
+    FILES=( "./assembly/__benches__/$BENCH_NAME" )
+  elif [[ -f "./benches/$BENCH_NAME" ]]; then
+    FILES=( "./benches/$BENCH_NAME" )
+  else
+    echo "❌ No benchmark found for '${ARGS[0]}'"
+    exit 1
+  fi
+else
+  while IFS= read -r file; do FILES+=("$file"); done < <(discover_benches)
+fi
+
+for file in "${FILES[@]}"; do
+  contents="$(<"$file")"
+  if [[ "$contents" == *vendor/zmij-as* || "$contents" == *stage-hooks-zmij* ]]; then
+    if [[ ! -f ./vendor/zmij-as/assembly/dtoa.ts ]]; then
+      echo "Missing comparison dependency vendor/zmij-as. Run: git submodule update --init --recursive" >&2
+      exit 1
+    fi
+  fi
+done
 
 # Compile flags that enable the heap-analyzer transform + the BENCH_TRACK_MEMORY
 # compile-time guard inside bench.ts. Without --memory the bench loop skips all
@@ -167,27 +206,6 @@ if [[ $RUN_WAZERO -eq 1 ]] && ! command -v "$WAZERO_BIN" >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ ${#ARGS[@]} -gt 0 ]]; then
-  BENCH_NAME="${ARGS[0]}"
-fi
-
-mkdir -p ./build/logs/as/{v8,wavm,wasmtime,wazero}
-
-FILES=()
-
-if [[ -n "$BENCH_NAME" ]]; then
-  [[ "$BENCH_NAME" != *.bench.ts ]] && BENCH_NAME="$BENCH_NAME.bench.ts"
-  if [[ -f "./benches/$BENCH_NAME" ]]; then
-    FILES=( "./benches/$BENCH_NAME" )
-  elif [[ -f "./assembly/__benches__/$BENCH_NAME" ]]; then
-    FILES=( "./assembly/__benches__/$BENCH_NAME" )
-  else
-    echo "❌ No benchmark found for '${ARGS[0]}'"
-    exit 1
-  fi
-else
-  FILES=( ./benches/*.bench.ts ./assembly/__benches__/*.bench.ts )
-fi
 
 consume_bench_output() {
   local tmp="$1"

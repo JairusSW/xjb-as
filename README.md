@@ -3,7 +3,7 @@
 ╝ ╚ ╚╝ ╚═╝    ╩ ╩ ╚═╝</pre></h1>
 
 <p align="center">
-The fastest <strong>ECMAScript-<code>Number.toString</code>-compatible</strong>
+<strong>ECMAScript-formatted</strong>
 <code>f64</code>/<code>f32</code> → string for
 <a href="https://www.assemblyscript.org/">AssemblyScript</a>, built on the
 <strong><a href="https://github.com/xjb714/xjb">xjb</a></strong> / <strong><a href="https://github.com/vitaut/zmij" >Żmij</a></strong> family of shortest-decimal cores.
@@ -70,10 +70,16 @@ UTF-16 straight into your buffer:
 const codeUnits = dtoa_buffered(buffer, value);
 ```
 
-`dtoa(x)` matches V8 `x.toString()` / `JSON.stringify(x)` byte-for-byte -
-including `Infinity`, `-Infinity`, `NaN`, `-0 → "0"`, `1e21 → "1e+21"`,
-`1e-7 → "1e-7"`, the fixed-vs-exponential thresholds, and the minimal-width
-signed exponent per [ECMAScript Specification](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-numeric-types-number-tostring).
+`dtoa(x)` matches `Number.prototype.toString()` for f64 values, including
+`Infinity`, `-Infinity`, `NaN`, `-0 → "0"`, `1e21 → "1e+21"`, `1e-7 → "1e-7"`,
+and ECMAScript's fixed/exponential thresholds and signed exponent format.
+For finite f64 values this also matches JSON number output. JSON serializers
+must handle nonfinite values separately, typically by writing `null`.
+
+`ftoa` chooses the shortest decimal that round-trips to **binary32**, with the
+same ECMAScript notation rules. It does not format the widened binary64 value:
+`ftoa(<f32>0.1)` is `"0.1"`, while `Math.fround(0.1).toString()` is
+`"0.10000000149011612"`.
 
 ## API
 
@@ -97,9 +103,6 @@ logical end by up to one 8-char block.
 </p>
 <p align="center">
 <img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-comp-f32-wavm.png" alt="ftoa (f32) latency vs the AssemblyScript stdlib, by input complexity">
-</p>
-<p align="center">
-<img src="https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/v0.1.0/01-59184cf/dtoa-stages-f64-wavm.png" alt="dtoa (f64) per-stage latency breakdown">
 </p>
 
 Charts are published per release to the `docs` branch via `npm run charts:publish`
@@ -130,7 +133,10 @@ npm run fuzz
 
 ## Benchmarks
 
+Initialize the public comparison dependency before building benchmarks:
+
 ```bash
+git submodule update --init --recursive
 npm run bench -- --v8 --wavm
 npm run charts:build -- --v8 --wavm
 npm run charts:serve
@@ -144,6 +150,10 @@ at `f97f67d`. Common exponents use direct loads; the remaining powers are
 reconstructed from 23 anchors and exact correction bits. The normalized-power
 cache totals 872 bytes, replacing the old full/compressed f64 tables and separate f32 cache.
 No shrink-level switch or runtime initialization is needed.
+
+Kernel charts compare standalone general decimal/digit kernels with complete API
+calls. Integer and special-value shortcuts mean these are independent measurements,
+not additive stages of every public call.
 
 The performance charts above describe v0.1.0, before this port; they have not
 been regenerated for the current implementation.
