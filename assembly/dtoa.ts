@@ -1,16 +1,15 @@
-// ECMAScript-compatible f64 -> string (dtoa). xjb64 v2 shortest-decimal core for
-// doubles; shared machinery lives in xjb.ts.
+// ECMAScript-compatible f64 formatting. Shared machinery lives in xjb.ts.
 import {
-  mulhi64, umul128AddHi64, computeDecExp, computeExpShift,
-  EXTRA_SHIFT, DOUBLE_EXP_OFFSET, BIASED_HALF, DOUBLE_MAX_DIGITS10,
-  MIN_FIXED_DEC_EXP, MAX_FIXED_DEC_EXP,
-  gPow10Hi, gPow10Lo, loadPow10Xjb64, loadPow10HiXjb64,
-  gSig, gExp, gLastDigit, gHasLastDigit,
-  toDigits64, POW10_SMALL, DIGIT_PAIRS,
-  writeNaN, writeInfinity, writeFixed, writeExpNotation, SCRATCH, scratchString,
+  POW10_SMALL, LOG10_2_SIGNIFICAND, LOG10_2_EXP, LOG2_POW10_SIGNIFICAND, LOG2_POW10_EXP,
+  DOUBLE_EXP_OFFSET, DOUBLE_HIDDEN_BIT, DOUBLE_SIGNIFICAND_MASK, EXTRA_SHIFT, BIASED_HALF,
+  MIN_FIXED_DEC_EXP, MAX_FIXED_DEC_EXP, SCRATCH, gPow10Hi, gSig,
+  gExp, gLastDigit, gHasLastDigit, umul64hi, umul64hiCarry,
+  toDecExponent, exponentShift, computePow10, toDigits64Fixed16, writeNaN,
+  writeInfinity, writeFixed, writeExpNotation, scratchString,
+  decimalLen15, writeUInt16
 } from "./xjb";
 
-// @ts-expect-error: decorator
+// @ts-ignore: decorator
 @inline function setDecimalResult(integral: u64, one: u64, decExp: i32): void {
   if (one == 10) {
     gSig = <i64>(integral + 1);
@@ -29,21 +28,22 @@ import {
 }
 
 // Normal f64 -> shortest decimal.
-// @ts-expect-error: decorator
+// @ts-ignore: decorator
 @inline function toDecimalDoubleNormal(binSig: u64, rawExp: i32, regular: bool): void {
-  const c = binSig | ((<u64>1) << 52);
-  const q = rawExp - DOUBLE_EXP_OFFSET;
+  let c = binSig | DOUBLE_HIDDEN_BIT;
+  let q = rawExp - DOUBLE_EXP_OFFSET;
 
   if (!regular) {
-    const decExp = (q * 315653 - 131072) >> 20;
-    const powExp = -decExp - 1;
-    const h = q + ((powExp * 217707) >> 16);
+    let decExp = (q * LOG10_2_SIGNIFICAND - 131072) >> LOG10_2_EXP; // 131072 = 2**17 rounding bias
+    let powExp = -decExp - 1;
+    let h = q + ((powExp * LOG2_POW10_SIGNIFICAND) >> LOG2_POW10_EXP);
 
-    const pow10Hi = loadPow10HiXjb64(powExp);
+    computePow10(powExp + 293);
+    let pow10Hi = gPow10Hi;
 
-    const integral = pow10Hi >> (11 - h);
-    const halfUlp = pow10Hi >> (-h);
-    const dotOne = pow10Hi << (53 + h);
+    let integral = pow10Hi >> (11 - h);
+    let halfUlp = pow10Hi >> (-h);
+    let dotOne = pow10Hi << (53 + h);
 
     let one = ((((dotOne >> (53 + h)) * 5) + (((<u64>1) << (9 - h)))) >> (10 - h));
     one = ((((dotOne >> 54) * 5) & 0x1ff) > ((halfUlp >> 55) * 5))
@@ -51,114 +51,70 @@ import {
       : one;
     one = dotOne == ((<u64>1) << 62) ? 2 : one;
     one = (halfUlp >> 1) > dotOne ? 0 : one;
-    one = halfUlp > ~(<u64>0) - dotOne ? 10 : one;
+    one = halfUlp > u64.MAX_VALUE - dotOne ? 10 : one;
 
     setDecimalResult(integral, one, decExp);
     return;
   }
 
-  const decExp = ((rawExp - DOUBLE_EXP_OFFSET) * 78913) >> 18;
-  const powExp = -decExp - 1;
-  const h = q + ((powExp * 217707) >> 16);
-  const shift = h + 1 + EXTRA_SHIFT;
+  let decExp = ((rawExp - DOUBLE_EXP_OFFSET) * 78913) >> 18; // 78913/2**18 ~= log10(2) (Q18)
+  let powExp = -decExp - 1;
+  let h = q + ((powExp * LOG2_POW10_SIGNIFICAND) >> LOG2_POW10_EXP);
+  let shift = h + 1 + EXTRA_SHIFT;
 
-  loadPow10Xjb64(powExp);
-  const pHi = gPow10Hi, pLo = gPow10Lo;
-  const y = c << shift;
+  // xjb64 rounds up the negative-power low limb by one.
+  let pLo = computePow10(powExp + 293) + u64(powExp < 0);
+  let pHi = gPow10Hi;
+  let y = c << shift;
 
-  const a = mulhi64(pHi, y);
-  const plo64 = pHi * y;
-  const lo = plo64 + mulhi64(pLo, y);
-  const p_hi = a + u64(lo < plo64);
+  let a = umul64hi(pHi, y);
+  let pLo64 = pHi * y;
+  let lo = pLo64 + umul64hi(pLo, y);
+  let pHi64 = a + u64(lo < pLo64);
 
-  const integral = p_hi >> EXTRA_SHIFT;
-  const dotOne = (p_hi << (64 - EXTRA_SHIFT)) | (lo >> EXTRA_SHIFT);
-  const halfUlp = (pHi >> (-h)) + <u64>(1 - (c & 1));
+  let integral = pHi64 >> EXTRA_SHIFT;
+  let dotOne = (pHi64 << (64 - EXTRA_SHIFT)) | (lo >> EXTRA_SHIFT);
+  let halfUlp = (pHi >> (-h)) + <u64>(1 - (c & 1));
 
-  let one = umul128AddHi64(dotOne, 10, dotOne == ((<u64>1) << 62) ? 0 : BIASED_HALF);
+  let one = umul64hiCarry(dotOne, 10, dotOne == ((<u64>1) << 62) ? 0 : BIASED_HALF);
   one = dotOne < halfUlp ? 0 : one;
-  one = ~(<u64>0) - dotOne < halfUlp ? 10 : one;
+  one = u64.MAX_VALUE - dotOne < halfUlp ? 10 : one;
 
   setDecimalResult(integral, one, decExp);
 }
 
 // bin_sig * 2**(raw_exp - exp_offset) -> shortest decimal.
-// @ts-expect-error: decorator
+// @ts-ignore: decorator
 @inline export function toDecimalDouble(binSig: u64, rawExp: i32, regular: bool): void {
   if (rawExp != 0) return toDecimalDoubleNormal(binSig, rawExp, regular);
 
-  const decExp = computeDecExp(-1074);
-  const shift = computeExpShift(-1074, decExp + 1) + EXTRA_SHIFT;
+  let decExp = toDecExponent(-1074);
+  let shift = exponentShift(-1074, decExp + 1) + EXTRA_SHIFT;
 
-  loadPow10Xjb64(-decExp - 1);
-  const pHi = gPow10Hi, pLo = gPow10Lo;
-  const y = binSig << shift;
+  let powExp = -decExp - 1;
+  let pLo = computePow10(powExp + 293) + u64(powExp < 0);
+  let pHi = gPow10Hi;
+  let y = binSig << shift;
 
-  const a = mulhi64(pHi, y);
-  const plo64 = pHi * y;
-  const lo = plo64 + mulhi64(pLo, y);
-  const p_hi = a + u64(lo < plo64);
+  let a = umul64hi(pHi, y);
+  let pLo64 = pHi * y;
+  let lo = pLo64 + umul64hi(pLo, y);
+  let pHi64 = a + u64(lo < pLo64);
 
-  const integral = p_hi >> EXTRA_SHIFT;
-  const dotOne = (p_hi << (64 - EXTRA_SHIFT)) | (lo >> EXTRA_SHIFT);
-  const halfUlp = (pHi >> (EXTRA_SHIFT + 1 - shift)) + <u64>(1 - (binSig & 1));
+  let integral = pHi64 >> EXTRA_SHIFT;
+  let dotOne = (pHi64 << (64 - EXTRA_SHIFT)) | (lo >> EXTRA_SHIFT);
+  let halfUlp = (pHi >> (EXTRA_SHIFT + 1 - shift)) + <u64>(1 - (binSig & 1));
 
-  let one = umul128AddHi64(dotOne, 10, BIASED_HALF);
+  let one = umul64hiCarry(dotOne, 10, BIASED_HALF);
   one = dotOne < halfUlp ? 0 : one;
-  one = ~(<u64>0) - dotOne < halfUlp ? 10 : one;
+  one = u64.MAX_VALUE - dotOne < halfUlp ? 10 : one;
 
   setDecimalResult(integral, one, decExp);
 }
 
-// @ts-expect-error: decorator
-@inline function decimalLen15(v: u64): i32 {
-  if (v < 100000000) {
-    if (v < 10000) {
-      if (v < 100) return v < 10 ? 1 : 2;
-      return v < 1000 ? 3 : 4;
-    }
-    if (v < 1000000) return v < 100000 ? 5 : 6;
-    return v < 10000000 ? 7 : 8;
-  }
-  if (v < 1000000000000) {
-    if (v < 10000000000) return v < 1000000000 ? 9 : 10;
-    return v < 100000000000 ? 11 : 12;
-  }
-  if (v < 100000000000000) return v < 10000000000000 ? 13 : 14;
-  return 15;
-}
-
-// @ts-expect-error: decorator
-@inline function decimalLen16(v: u64): i32 {
-  return v < 1000000000000000 ? decimalLen15(v) : 16;
-}
-
-// @ts-expect-error: decorator
-@inline function writeUInt16(buf: usize, value: u64): usize {
-  const len = decimalLen16(value);
-  let p = buf + (<usize>len << 1);
-  let v = value;
-  while (v >= 100) {
-    const q = v / 100;
-    const pair = <u32>load<u16>(DIGIT_PAIRS + (<usize>(v - q * 100) << 1));
-    p -= 4;
-    store<u16>(p, pair & 0xff);
-    store<u16>(p, pair >> 8, 2);
-    v = q;
-  }
-  if (v >= 10) {
-    const pair = <u32>load<u16>(DIGIT_PAIRS + (<usize>v << 1));
-    store<u16>(buf, pair & 0xff);
-    store<u16>(buf, pair >> 8, 2);
-  } else {
-    store<u16>(buf, 0x30 + <u32>v);
-  }
-  return buf + (<usize>len << 1);
-}
-
-// @ts-expect-error: decorator
-@inline function normalizeDoubleShortest(): void {
-  const full = <u64>gSig * 10 + <u64>(gHasLastDigit ? gLastDigit : 0);
+// @ts-ignore: decorator
+@inline export function normalizeDoubleShortest(): void {
+  let full = <u64>gSig * 10 + <u64>(gHasLastDigit ? gLastDigit : 0);
   if (full >= 1000000000000000) {
     gSig = <i64>full;
     --gExp;
@@ -166,38 +122,45 @@ import {
     gHasLastDigit = false;
     return;
   }
-  const scale = 16 - decimalLen15(full);
-  const mul = load<u64>(POW10_SMALL + (<usize>scale << 3));
+  let scale = 16 - decimalLen15(full);
+  let mul = load<u64>(POW10_SMALL + (<usize>scale << 3));
   gSig = <i64>(full * mul);
   gExp -= scale + 1;
   gLastDigit = 0;
   gHasLastDigit = false;
 }
 
-// @ts-expect-error: decorator
+// @ts-ignore: decorator
 @inline function formatDecodedDouble(buf: usize, bits: u64, binExp: i32, binSig: u64): usize {
-  const neg = bits >> 63 != 0;
-  const threshold: u64 = 1000000000000000;
+  let neg = bits >> 63 != 0;
+  let threshold: u64 = 1000000000000000;
 
   // is_normal: 1 <= bin_exp <= 2046
-  const isNormal = <u32>(binExp - 1) < <u32>2046;
+  let isNormal = <u32>(binExp - 1) < <u32>2046;
   if (!isNormal) {
     if (binExp != 0) {
       if (binSig != 0) return writeNaN(buf);
       return writeInfinity(buf, neg);
     }
-    if (binSig == 0) { store<u16>(buf, 0x30); return buf + 2; } // +/-0 -> "0"
+    // +/-0 -> "0"
+    if (binSig == 0) {
+      store<u16>(buf, 0x30);
+      return buf + 2;
+    }
   }
 
-  if (neg) { store<u16>(buf, 0x2d); buf += 2; }
+  if (neg) {
+    store<u16>(buf, 0x2d);
+    buf += 2;
+  }
   if (isNormal) {
-    const q = binExp - DOUBLE_EXP_OFFSET;
-    const c = binSig | ((<u64>1) << 52);
+    let q = binExp - DOUBLE_EXP_OFFSET;
+    let c = binSig | DOUBLE_HIDDEN_BIT;
     let intValue: u64 = 0;
     if (q < 0) {
-      const shift = -q;
+      let shift = -q;
       if (shift <= 52) {
-        const mask = ((<u64>1) << shift) - 1;
+        let mask = ((<u64>1) << shift) - 1;
         if ((c & mask) == 0) intValue = c >> shift;
       }
     } else if (q < 11) {
@@ -214,28 +177,27 @@ import {
   }
   if (<u64>gSig < threshold) normalizeDoubleShortest();
 
-  const hasLastDigit = gHasLastDigit;
-  const hasExtraDigit = <u64>gSig >= threshold;
-  const decExp = gExp + DOUBLE_MAX_DIGITS10 - 2 + i32(hasExtraDigit);
-  const start = buf;
-  toDigits64(<u64>gSig);
+  let hasLastDigit = gHasLastDigit;
+  let decExp = gExp + 16;
+  let start = buf;
+  toDigits64Fixed16(<u64>gSig);
   if (decExp >= MIN_FIXED_DEC_EXP && decExp <= MAX_FIXED_DEC_EXP)
     return writeFixed(buf, start, decExp, hasLastDigit);
-  return writeExpNotation(buf, start, decExp, hasLastDigit, hasExtraDigit, 16);
+  return writeExpNotation(buf, start, decExp, hasLastDigit, true, 16);
 }
 
-// @ts-expect-error: decorator
+// @ts-ignore: decorator
 @inline function formatDouble(buf: usize, value: f64): usize {
-  const bits = reinterpret<u64>(value);
-  const binExp = <i32>((bits << 1) >> 53);
-  const binSig = bits & (((<u64>1) << 52) - 1);
+  let bits = reinterpret<u64>(value);
+  let binExp = <i32>((bits << 1) >> 53);
+  let binSig = bits & DOUBLE_SIGNIFICAND_MASK;
   return formatDecodedDouble(buf, bits, binExp, binSig);
 }
 
 export function dtoa(value: f64): string {
-  const bits = reinterpret<u64>(value);
-  const exp = <i32>((bits << 1) >> 53);
-  const sig = bits & (((<u64>1) << 52) - 1);
+  let bits = reinterpret<u64>(value);
+  let exp = <i32>((bits << 1) >> 53);
+  let sig = bits & DOUBLE_SIGNIFICAND_MASK;
 
   if (exp == 2047) {
     if (sig != 0) return "NaN";

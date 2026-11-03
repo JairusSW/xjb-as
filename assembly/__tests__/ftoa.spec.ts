@@ -5,6 +5,10 @@ import { describe, expect } from "as-test";
 import { ftoa } from "../ftoa";
 
 describe("ftoa: f32 edge cases", () => {
+  expect(ftoa(reinterpret<f32>(<u32>0x15ae43fd))).toBe("7.038531e-26");
+  expect(ftoa(reinterpret<f32>(<u32>0x15ae43fe))).toBe("7.0385313e-26");
+  expect(ftoa(reinterpret<f32>(<u32>0x95ae43fd))).toBe("-7.038531e-26");
+  expect(ftoa(reinterpret<f32>(<u32>0x95ae43fe))).toBe("-7.0385313e-26");
   expect(ftoa(reinterpret<f32>(<u32>0x0))).toBe("0");
   expect(ftoa(reinterpret<f32>(<u32>0x80000000))).toBe("0");
   expect(ftoa(reinterpret<f32>(<u32>0x3f800000))).toBe("1");

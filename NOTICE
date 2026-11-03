@@ -8,3 +8,12 @@ Vendored snapshot:
 Derived implementation:
 - `assembly/dtoa.ts` contains an AssemblyScript port of the xjb64 v2 `f64`
   shortest-decimal core adapted to the existing ECMAScript formatter surface.
+
+Formatter, compact power-cache, and verification improvements are ported from
+AssemblyScript PR #3025:
+https://github.com/AssemblyScript/assemblyscript/pull/3025
+Source revision: f97f67d791cb125b28db39e5ab72f8f4b71aa658
+
+Copyright (c) The AssemblyScript Authors, licensed under Apache License 2.0.
+See LICENSE.Apache-2.0. The port preserves xjb-as's module layout and public
+ECMAScript formatting behavior (including integer output without a trailing .0).

@@ -66,7 +66,7 @@ Writing a serializer with its own buffer? Skip the `String` allocation and write
 UTF-16 straight into your buffer:
 
 ```typescript
-// UTF-16 written directly into your buffer (>= 64 bytes); no allocation.
+// UTF-16 written directly into your buffer (>= 56 bytes); no allocation.
 const codeUnits = dtoa_buffered(buffer, value);
 ```
 
@@ -86,7 +86,7 @@ ftoa_buffered(buffer, value: f32): u32   // write UTF-16 into buffer, return cod
 
 **Buffer contract.** `dtoa_buffered` / `ftoa_buffered` write the shortest decimal
 as UTF-16 *directly* into `buffer` (no intermediate ASCII pass or widening);
-`buffer` needs ≥ 64 bytes. The returned code-unit count is exact - the extra
+`buffer` needs ≥ 56 bytes (28 UTF-16 code units). The returned code-unit count is exact - the extra
 headroom covers the in-register digit-block stores, which can overshoot the
 logical end by up to one 8-char block.
 
@@ -107,18 +107,21 @@ Charts are published per release to the `docs` branch via `npm run charts:publis
 
 ## Verification
 
-`dtoa`/`ftoa` are checked against V8 ground truth (`Number::toString` for f64; the
-exact BigInt shortest-round-trip for f32) - 0 failures across every power of two
-(±1/±0xF ulp), every power of ten, tens of millions of random values, and a
-generated assertion suite with 100% line/branch coverage.
+Verification compares f64 output with V8 `Number::toString` and f32 output
+with exact BigInt rounding intervals and ties-to-even. The debug/release ×
+scalar/SIMD matrix checks both allocating and buffered APIs, signed exponent
+boundaries, integer shortcuts, subnormals, buffer canaries, digit packing, and
+all 618 cached powers. The verifier and fuzzer also exercise seeded random inputs.
 
 ```bash
 # generate the as-test spec from the V8 oracle, then run the suite
 npm run gen-spec
 npm test
 
-# build the verify wasm + check against V8 (fixed edge + 2M random; pass a count)
+# check debug/release scalar/SIMD, buffer bounds, cached powers, and V8 outputs
+# then verify the optimized builds with fixed edges + 2M random inputs per width
 npm run verify
+npm run verify:matrix
 node scripts/dtoa/verify.mjs 3000
 
 # open-ended differential fuzz vs V8 (seeded, repro-friendly; --runs/--time/--seed)
@@ -135,30 +138,25 @@ npm run charts:serve
 
 ## Binary size
 
-Float→string code is mostly its pow10 lookup table. Build with `-Oz` (or
-`-Os`) and the f64 table shrinks from ~9.9 KB to ~5 KB: a Dragonbox-style
-**compressed anchor cache** reconstructed at load time (one multiply-by-5 per
-in-between power), selected automatically via `ASC_SHRINK_LEVEL` and **bit-identical**
-to the full table. The f32 path is a compact, self-contained core (~1.2 KB
-hi-only table) — an f32-only build never pulls in the f64 machinery.
+Both widths now share a compact power-of-ten cache in every build, ported from
+[AssemblyScript PR #3025](https://github.com/AssemblyScript/assemblyscript/pull/3025)
+at `f97f67d`. Common exponents use direct loads; the remaining powers are
+reconstructed from 23 anchors and exact correction bits. The normalized-power
+cache totals 872 bytes, replacing the old full/compressed f64 tables and separate f32 cache.
+No shrink-level switch or runtime initialization is needed.
 
-| build (`--runtime stub`, SIMD) |   `-O3` |   `-Oz` |
-| ------------------------------ | ------: | ------: |
-| `dtoa` (f64)                   | 13.4 KB |  9.0 KB |
-| `ftoa` (f32)                   |  2.9 KB |  2.9 KB |
-| both                           | 21.9 KB | 17.9 KB |
+The performance charts above describe v0.1.0, before this port; they have not
+been regenerated for the current implementation.
 
 ## Architecture
 
 Three modules under `assembly/`:
 
 - **`dtoa.ts`** (f64) — ports the upstream `xjb64` v2 shortest-decimal core.
-- **`ftoa.ts`** (f32) — a self-contained port of xjb's compact
-  single-hi-multiply f32 core (24-bit significand ⇒ a hi-only table and a
-  narrow 64×24 product).
-- **`xjb.ts`** — the shared f64 engine `dtoa.ts` builds on: 128-bit math, the
-  pow10 tables + loads (full, or the compressed anchor cache at `-Oz`), the
-  SIMD/SWAR digit kernel, and the UTF-16 layout writers.
+- **`ftoa.ts`** (f32) — xjb's single-hi-multiply f32 core with a narrow
+  64×24 product, integer shortcuts, and bounded subnormal scaling.
+- **`xjb.ts`** — the shared engine: 128-bit math, compact power cache,
+  SIMD/SWAR digit kernels, integer and exponent writers, and UTF-16 layout.
 
 The formatter lays out digits per the [ECMA-262 `Number::toString` decision tree](https://tc39.es/ecma262/multipage/ecmascript-data-types-and-values.html#sec-numeric-types-number-tostring) and stores UTF-16 directly.
 

@@ -23,5 +23,5 @@ jobs:
       - name: Run Tests (simd/swar x ASC_SHRINK_LEVEL 0/1/2)
         run: bun run test
 
-      - name: Verify against V8 (dtoa, dtoa-comp, ftoa, ftoa-comp)
+      - name: Verify exact outputs, scalar/SIMD, buffer bounds, and power cache
         run: bun run verify

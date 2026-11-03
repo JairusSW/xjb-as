@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-# Builds the targets the verifier and fuzzer exercise:
-#   build/dtoa.wasm       - dtoa.ts -O3, full 9.9 KB pow10 table          -> dtoa
-#   build/dtoa-comp.wasm  - dtoa.ts --shrinkLevel 1, compressed anchor
-#                           table + reconstruction                        -> dtoa-comp
-#   build/ftoa.wasm       - ftoa.ts, compact hi-only f32 core             -> ftoa
-# (f64 = dtoa.ts, compact f32 = ftoa.ts, shared f64 engine = xjb.ts.)
+# Build the optimized targets exercised by verification and fuzzing.
+# dtoa-comp keeps its historical filename but now exercises shrink level 1
+# against the same compact cache used by dtoa and ftoa in every build.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 

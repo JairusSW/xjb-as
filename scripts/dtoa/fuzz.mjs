@@ -47,9 +47,9 @@ const crashDir = new URL("../../.as-test/crashes/", import.meta.url);
 
 // ---- wasm -----------------------------------------------------------------
 // Build targets, each its own module + memory:
-//   dtoa       f64, full pow10 table       (build/dtoa.wasm)
-//   dtoa-comp  f64, compressed table       (build/dtoa-comp.wasm, --shrinkLevel 1)
-//   ftoa       f32, compact hi-only core   (build/ftoa.wasm)
+//   dtoa       f64, shared compact cache       (build/dtoa.wasm)
+//   dtoa-comp  f64, shared compact cache       (build/dtoa-comp.wasm, --shrinkLevel 1)
+//   ftoa       f32, shared compact cache   (build/ftoa.wasm)
 async function loadModule(rel) {
     let bytes;
     try {

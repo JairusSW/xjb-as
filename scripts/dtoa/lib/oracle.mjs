@@ -55,64 +55,93 @@ export function refDouble(v) {
   return ecmaFormat(neg, s, n);
 }
 
-// Exact decimal of an f32: returns { neg, P (BigInt of significant integer),
-// F (so value = P * 10^F) }. Every f32 is an exact finite decimal.
-function exactF32(v) {
-  f32buf.setFloat32(0, v);
-  const bits = f32buf.getUint32(0) >>> 0;
-  const neg = (bits >>> 31) !== 0;
-  const eRaw = (bits >>> 23) & 0xff;
-  const mant = bits & 0x7fffff;
-  let sig, exp;
-  if (eRaw === 0) { sig = BigInt(mant); exp = -149; }
-  else { sig = BigInt(mant | 0x800000); exp = eRaw - 150; }
-  let P, F;
-  if (exp >= 0) { P = sig << BigInt(exp); F = 0; }
-  else { P = sig * 5n ** BigInt(-exp); F = exp; }
-  return { neg, P, F };
+// Exact binary32 intervals avoid decimal -> binary64 -> binary32 double rounding.
+// Represent values and midpoints as integers in units of 2^-150. Adjacent
+// binary32 values are multiples of 2^-149, including the subnormal range.
+function scaledFloat32(bits) {
+  const exponent = (bits >>> 23) & 0xff;
+  const significand = BigInt(exponent ? (bits & 0x7fffff) | 0x800000 : bits);
+  return significand << BigInt(exponent || 1);
 }
 
-// Reference ECMAScript string for an f32 value (v is its exact f64 value).
-// Correct shortest-round-trip: for each length k, test BOTH the floor and ceil
-// k-significant-digit decimals of the exact value; among those that fround back
-// to the f32, pick the one closest to the exact value (ties -> even).
-export function refFloat(v) {
-  if (Object.is(v, 0)) return "0";
-  if (Object.is(v, -0)) return "0";
-  if (Number.isNaN(v)) return "NaN";
-  if (v === Infinity) return "Infinity";
-  if (v === -Infinity) return "-Infinity";
-  const { neg, P, F } = exactF32(v);
-  const mag = Math.abs(v);
-  const dstr = P.toString();
-  const L = dstr.length;
-  const rt = (head, shift) => Math.fround(parseFloat(head + "e" + shift)) === mag;
+function roundingInterval(bits) {
+  bits &= 0x7fffffff;
+  const value = scaledFloat32(bits);
+  // At the largest finite value, the next encoding represents the virtual
+  // value 2^128 here, giving the correct overflow midpoint.
+  return [
+    (value + scaledFloat32(bits - 1)) / 2n,
+    (value + scaledFloat32(bits + 1)) / 2n,
+    (bits & 1) === 0,
+  ];
+}
 
-  for (let k = 1; k <= L; k++) {
-    const shift = L - k + F;
-    const floorHead = dstr.slice(0, k);            // truncate to k digits
-    const ceilHead = (BigInt(floorHead) + 1n).toString();
-    const pow = 10n ** BigInt(L - k);
-    const r = P % pow;                              // exact - floor (in 10^F units)
-    const twoR = 2n * r;
+function roundsToInterval(digits, exponent, [lower, upper, inclusive]) {
+  let numerator = BigInt(digits) << 150n;
+  if (exponent >= 0) {
+    numerator *= 10n ** BigInt(exponent);
+  } else {
+    const denominator = 10n ** BigInt(-exponent);
+    lower *= denominator;
+    upper *= denominator;
+  }
+  return inclusive
+    ? lower <= numerator && numerator <= upper
+    : lower < numerator && numerator < upper;
+}
 
-    const floorOk = rt(floorHead, shift);
-    const ceilOk = rt(ceilHead, shift);
+// Candidate acceptance for finite, nonzero binary32 magnitudes. No binary64
+// parsing is involved, so decimal-to-f64-to-f32 double rounding is impossible.
+export function roundsToFloat32(bits, digits, exponent) {
+  return roundsToInterval(digits, exponent, roundingInterval(bits));
+}
+
+export function shortestFloat32(bits) {
+  const value = f32from(bits);
+  if (Number.isNaN(value)) return "NaN";
+  if (value === Infinity) return "Infinity";
+  if (value === -Infinity) return "-Infinity";
+  if (value === 0) return "0";
+
+  const negative = (bits >>> 31) !== 0;
+  const exponentBits = (bits >>> 23) & 0xff;
+  const mantissa = bits & 0x7fffff;
+  const significand = BigInt(exponentBits ? mantissa | 0x800000 : mantissa);
+  const binaryExponent = exponentBits ? exponentBits - 150 : -149;
+  const decimalInteger = binaryExponent >= 0
+    ? significand << BigInt(binaryExponent)
+    : significand * 5n ** BigInt(-binaryExponent);
+  const decimalExponent = Math.min(binaryExponent, 0);
+  const exactDigits = decimalInteger.toString();
+  const interval = roundingInterval(bits);
+
+  // At each length, test the two decimals bracketing the exact value. Choose
+  // the closest one that parses back to the binary32 value; ties go to even.
+  for (let count = 1; count <= exactDigits.length; ++count) {
+    const shift = exactDigits.length - count + decimalExponent;
+    const floor = exactDigits.slice(0, count);
+    const ceil = (BigInt(floor) + 1n).toString();
+    const roundTrips = digits => roundsToInterval(digits, shift, interval);
+    const floorOk = roundTrips(floor);
+    const ceilOk = roundTrips(ceil);
     if (!floorOk && !ceilOk) continue;
 
-    let head;
+    let chosen;
     if (floorOk && ceilOk) {
-      if (twoR < pow) head = floorHead;
-      else if (twoR > pow) head = ceilHead;
-      else head = ((floorHead.charCodeAt(k - 1) - 48) & 1) === 0 ? floorHead : ceilHead;
+      const unit = 10n ** BigInt(exactDigits.length - count);
+      const distance = 2n * (decimalInteger % unit);
+      chosen = distance < unit ? floor : distance > unit ? ceil
+        : (Number(floor[floor.length - 1]) & 1) === 0 ? floor : ceil;
     } else {
-      head = floorOk ? floorHead : ceilHead;
+      chosen = floorOk ? floor : ceil;
     }
-    const K = head.length;                          // k or k+1 (carry on ceil)
-    let s = head.replace(/0+$/, "");
-    if (s === "") s = "0";
-    const n = K + shift;                            // point position
-    return ecmaFormat(neg, s, n);
+    const point = chosen.length + shift;
+    return ecmaFormat(negative, chosen.replace(/0+$/, ""), point);
   }
-  throw new Error("no shortest f32 found for " + v);
+  throw new Error(`no shortest f32 decimal for 0x${bits.toString(16)}`);
+}
+
+export function refFloat(value) {
+  f32buf.setFloat32(0, value);
+  return shortestFloat32(f32buf.getUint32(0));
 }

@@ -16,9 +16,9 @@ import {
 } from "./lib/oracle.mjs";
 
 // Load each build target as its own module (see scripts/dtoa/build.sh):
-//   dtoa       full-table f64    (build/dtoa.wasm)
-//   dtoa-comp  compressed f64    (build/dtoa-comp.wasm)
-//   ftoa       compact f32 core  (build/ftoa.wasm)
+//   dtoa       optimized f64    (build/dtoa.wasm)
+//   dtoa-comp  shrink-1 f64    (build/dtoa-comp.wasm)
+//   ftoa       optimized f32  (build/ftoa.wasm)
 function loadModule(rel) {
   const bytes = readFileSync(new URL(`../../build/${rel}`, import.meta.url));
   const instance = new WebAssembly.Instance(new WebAssembly.Module(bytes), {

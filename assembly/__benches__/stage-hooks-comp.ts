@@ -1,5 +1,4 @@
-// f32 core stage hook for ftoa.ts (the self-contained compact f32). Kept separate
-// from stage-hooks.ts because ftoa.ts has its own decimal-result globals.
+// f32 core stage hook; decimal-result slots are shared with the f64 engine.
 import {
     toDecimalFloat,
     FLOAT_MAX_DIGITS10,
@@ -30,10 +29,9 @@ export function benchCoreFloat(value: f32): u64 {
         toDecimalFloat(binSig, 1, true);
         let decSig = gSig * 10 + (gHasLastDigit ? gLastDigit : 0);
         let decExp = gExp;
-        while (<u64>decSig < threshold) {
-            decSig *= 10;
-            --decExp;
-        }
+        if (<u64>decSig < 10000) { decSig *= 10000; decExp -= 4; }
+        if (<u64>decSig < 1000000) { decSig *= 100; decExp -= 2; }
+        if (<u64>decSig < threshold) { decSig *= 10; --decExp; }
         const q = <i64>(<u64>decSig / 10);
         const last = <i32>(decSig - q * 10);
         gSig = q;

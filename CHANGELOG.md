@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- Port AssemblyScript PR #3025 through `f97f67d`: share an 872-byte power cache
+  across f64/f32 and all optimization levels, with direct common-exponent loads
+  and exact reconstruction for the remaining powers.
+- Use faster SIMD digit packing, scalar UTF-16 widening, fixed-width f64 packing
+  and trailing-zero trimming, integer writers, f32 integer shortcuts, and
+  bounded subnormal scaling. Preserve the four public APIs and ECMAScript output.
+- Tighten the buffered API requirement to 56 bytes (28 UTF-16 code units).
+
+### Fixed
+
+- Replace binary64-based f32 oracle acceptance with exact BigInt rounding
+  intervals and ties-to-even, shared by verification, fuzzing, and spec generation.
+- Add upstream midpoint regressions, compiled-cache checks for all 618 powers,
+  exhaustive four-digit lane checks, and debug/release scalar/SIMD comparisons
+  covering allocating and buffered APIs with buffer canaries.
+
 ## [0.1.0] - 2026-06-08
 
 ### Added
