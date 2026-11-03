@@ -23,8 +23,8 @@ export function benchCoreDouble(value: f64): u64 {
     const expMask = 2047;
     const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
     if (!isNormal) {
-        if (binExp != 0) return 0;
-        if (binSig == 0) return 0;
+        if (binExp != 0) { gSig = 0; return 0; }
+        if (binSig == 0) { gSig = 0; return 0; }
         toDecimalDouble(binSig, 0, true); // subnormal: no implicit 1 bit
     } else {
         // zmij's toDecimalDouble expects the full significand (caller adds implicit 1 bit,
@@ -63,8 +63,8 @@ export function benchCoreDoubleRaw(value: f64): u64 {
     const expMask = 2047;
     const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
     if (!isNormal) {
-        if (binExp != 0) return 0;
-        if (binSig == 0) return 0;
+        if (binExp != 0) { gSig = 0; return 0; }
+        if (binSig == 0) { gSig = 0; return 0; }
         toDecimalDouble(binSig, 0, true);
     } else {
         toDecimalDouble(binSig | ((<u64>1) << 52), binExp, binSig != 0);
@@ -75,4 +75,16 @@ export function benchCoreDoubleRaw(value: f64): u64 {
 export function benchDigits64(sig: u64): u64 {
     toDigits64(sig);
     return gDigHi ^ gDigLo ^ (<u64>gDigNum);
+}
+
+// Setup-only checks: never run inside the timed digit loop.
+export function validateDigits64(sig: u64): void {
+    if (sig >= 10000000000000000) throw new Error("invalid f64 digit-kernel input");
+    benchDigits64(sig);
+    const expected = sig.toString().padStart(16, "0");
+    for (let i = 0; i < 16; ++i) {
+        const block = i < 8 ? gDigHi : gDigLo;
+        const digit = <u32>(block >> ((i & 7) << 3)) & 255;
+        if (digit != expected.charCodeAt(i)) throw new Error("invalid f64 packed digits");
+    }
 }

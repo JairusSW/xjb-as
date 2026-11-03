@@ -24,8 +24,8 @@ export function benchCoreFloat(value: f32): u64 {
     const expMask = 255;
     const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
     if (!isNormal) {
-        if (binExp != 0) return 0;
-        if (binSig == 0) return 0;
+        if (binExp != 0) { gSig = 0; return 0; }
+        if (binSig == 0) { gSig = 0; return 0; }
         toDecimalFloat(binSig, 1, true);
         let decSig = gSig * 10 + (gHasLastDigit ? gLastDigit : 0);
         let decExp = gExp;
@@ -49,4 +49,13 @@ export function benchCoreFloat(value: f32): u64 {
         --decExp;
     }
     return <u64>gSig;
+}
+
+export function validateDigits32(sig: u64): void {
+    if (sig >= 100000000) throw new Error("invalid f32 digit-kernel input");
+    benchDigits32(sig);
+    const expected = sig.toString().padStart(8, "0");
+    for (let i = 0; i < 8; ++i)
+        if ((<u32>(gDigHi >> (i << 3)) & 255) != expected.charCodeAt(i))
+            throw new Error("invalid f32 packed digits");
 }

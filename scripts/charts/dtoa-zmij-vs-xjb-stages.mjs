@@ -1,6 +1,5 @@
 // Per-stage latency: zmij-as v0.1 vs xjb-as, f64, by input complexity.
-// Grouped stacked bars — each bucket shows a zmij stack next to an xjb stack,
-// both split into core / digits / layout+UTF-16 / string-overhead.
+// Grouped independent measurements for general kernels and complete API calls.
 // Run first: npm run bench -- dtoa-zmij-vs-xjb-stages
 
 import fs from "node:fs";
@@ -42,15 +41,18 @@ const ZMIJ_BARS = {
 const ns = (bucket, impl, stem) => {
     const p = path.join(LOGS, `dtoa-zmij-vs-xjb-stages-${bucket}-${impl}-${stem}.as.json`);
     if (!fs.existsSync(p)) return null;
-    return JSON.parse(fs.readFileSync(p, "utf8")).nsPerOp;
+    const row = JSON.parse(fs.readFileSync(p, "utf8"));
+    if (row.benchmarkSchemaVersion !== 2)
+        throw new Error(`Outdated kernel measurements in ${p}; rerun the stage benchmarks.`);
+    return row.nsPerOp;
 };
 
 function buildBreakdown() {
     const labels = [];
-    // Four stage arrays, two impls each: zmij then xjb interleaved.
+    // Four independent measurements for each implementation.
     const out = {
-        zmijCore: [], zmijDigits: [], zmijNoallocRest: [], zmijStringOverhead: [],
-        xjbCore:  [], xjbDigits:  [], xjbNoallocRest:  [], xjbStringOverhead:  [],
+        zmijCore: [], zmijCoreDigits: [], zmijBuffered: [], zmijString: [],
+        xjbCore:  [], xjbCoreDigits:  [], xjbBuffered:  [], xjbString:  [],
     };
     let any = false;
 
@@ -70,16 +72,13 @@ function buildBreakdown() {
         any = true;
 
         labels.push(label);
-        // digits = core-digits - core (toDigits64 only)
-        // noallocRest = buffered - core-digits (layout + UTF-16 encoding)
-        out.zmijCore.push(vals["zmij-core"]);
-        out.zmijDigits.push(Math.max(0, vals["zmij-core-digits"] - vals["zmij-core"]));
-        out.zmijNoallocRest.push(Math.max(0, vals["zmij-buffered"] - vals["zmij-core-digits"]));
-        out.zmijStringOverhead.push(Math.max(0, vals["zmij-string"] - vals["zmij-buffered"]));
-        out.xjbCore.push(vals["xjb-core"]);
-        out.xjbDigits.push(Math.max(0, vals["xjb-core-digits"] - vals["xjb-core"]));
-        out.xjbNoallocRest.push(Math.max(0, vals["xjb-buffered"] - vals["xjb-core-digits"]));
-        out.xjbStringOverhead.push(Math.max(0, vals["xjb-string"] - vals["xjb-buffered"]));
+        // Kernels and public APIs are independent measurements.
+        for (const impl of ["zmij", "xjb"]) {
+            out[`${impl}Core`].push(vals[`${impl}-core`]);
+            out[`${impl}CoreDigits`].push(vals[`${impl}-core-digits`]);
+            out[`${impl}Buffered`].push(vals[`${impl}-buffered`]);
+            out[`${impl}String`].push(vals[`${impl}-string`]);
+        }
     }
 
     return any ? { labels, ...out } : null;
@@ -88,17 +87,16 @@ function buildBreakdown() {
 function makeConfig(bd) {
     const { labels } = bd;
 
-    // Datasets ordered bottom->top for each stack. Chart.js stacks datasets with
-    // the same `stack` value and groups different stacks side-by-side.
+    // Compare complete measured quantities; no subtraction or stacking.
     const datasets = [
-        { label: "zmij core",           data: bd.zmijCore,           stack: "zmij-as v0.1", ...ZMIJ_BARS.core },
-        { label: "zmij digits",         data: bd.zmijDigits,         stack: "zmij-as v0.1", ...ZMIJ_BARS.digits },
-        { label: "zmij layout+UTF-16",  data: bd.zmijNoallocRest,    stack: "zmij-as v0.1", ...ZMIJ_BARS.noallocRest },
-        { label: "zmij string-overhead",data: bd.zmijStringOverhead, stack: "zmij-as v0.1", ...ZMIJ_BARS.stringOverhead },
-        { label: "xjb core",            data: bd.xjbCore,            stack: "xjb-as",       ...STAGE_BARS.core },
-        { label: "xjb digits",          data: bd.xjbDigits,          stack: "xjb-as",       ...STAGE_BARS.digits },
-        { label: "xjb layout+UTF-16",   data: bd.xjbNoallocRest,     stack: "xjb-as",       ...STAGE_BARS.noallocRest },
-        { label: "xjb string-overhead", data: bd.xjbStringOverhead,  stack: "xjb-as",       ...STAGE_BARS.stringOverhead },
+        { label: "zmij core",           data: bd.zmijCore,            ...ZMIJ_BARS.core },
+        { label: "zmij core+digits kernel",         data: bd.zmijCoreDigits,          ...ZMIJ_BARS.digits },
+        { label: "zmij buffered API",  data: bd.zmijBuffered,     ...ZMIJ_BARS.noallocRest },
+        { label: "zmij string API",data: bd.zmijString,  ...ZMIJ_BARS.stringOverhead },
+        { label: "xjb core",            data: bd.xjbCore,                   ...STAGE_BARS.core },
+        { label: "xjb core+digits kernel",          data: bd.xjbCoreDigits,                 ...STAGE_BARS.digits },
+        { label: "xjb buffered API",   data: bd.xjbBuffered,            ...STAGE_BARS.noallocRest },
+        { label: "xjb string API", data: bd.xjbString,         ...STAGE_BARS.stringOverhead },
     ].map((d) => ({ ...d, backgroundColor: d.bg, borderColor: d.border, borderWidth: 1 }));
 
     return {
@@ -109,7 +107,7 @@ function makeConfig(bd) {
             plugins: {
                 title: {
                     display: true,
-                    text: "dtoa (f64) stage breakdown: zmij-as v0.1 vs xjb-as",
+                    text: "dtoa (f64) kernels and complete calls: zmij-as v0.1 vs xjb-as",
                     font: { size: 20, weight: "bold" },
                 },
                 subtitle: {
@@ -134,7 +132,7 @@ function makeConfig(bd) {
             layout: { padding: { top: 24 } },
             scales: {
                 x: {
-                    stacked: true,
+                    stacked: false,
                     ticks: {
                         font: { size: 11 },
                         color: INK.subtitle,
@@ -144,7 +142,7 @@ function makeConfig(bd) {
                     grid: { color: INK.grid },
                 },
                 y: {
-                    stacked: true,
+                    stacked: false,
                     beginAtZero: true,
                     grace: "8%",
                     title: {

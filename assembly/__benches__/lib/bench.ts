@@ -50,9 +50,11 @@ class BenchResult {
   mbps!: f64;
   gbps!: f64;
   memoryBaselineBytes: u64 = 0;
-  memoryPeakBytes: u64 = 0;
+  memoryLinearBaselineBytes: u64 = 0;
+  memoryLinearPeakBytes: u64 = 0;
+  memoryLinearGrowthBytes: u64 = 0;
   memoryRetainedBytes: u64 = 0;
-  memoryPostGcMs: f64 = 0;
+  memoryCollectAndSnapshotMs: f64 = 0;
   heapDetail: string = "";
 }
 
@@ -76,16 +78,6 @@ function benchRuntimeName(): string {
   if (targetPages > currentPages) {
     memory.grow(<i32>(targetPages - currentPages));
   }
-}
-
-// Walk live blocks without running another GC (so we can see in-flight allocs
-// the bench loop's incremental GC hasn't reclaimed yet).
-function walkHeapNoCollect(): u64 {
-  // as-heap-analyzer's getUsedMemorySize calls __collect first. To inspect
-  // pre-GC state we GC-free-walk separately. Practical proxy: call
-  // getUsedMemorySize twice - the first call seeds memoryDetail with the
-  // in-flight view (since GC ran but we already snapshot at entry).
-  return <u64>getUsedMemorySize();
 }
 
 function buildHeapDetailDelta(): string {
@@ -116,10 +108,11 @@ export function bench(
 
   let baselineLiveBytes: u64 = 0;
   let peakPages: u64 = 0;
+  let baselinePages: u64 = 0;
   if (BENCH_MEMORY) {
     baselineLiveBytes = <u64>getUsedMemorySize();
     memory.copy(heapDetailSnapshot, memoryDetail, HEAP_DETAIL_SLOTS * 4);
-    peakPages = <u64>memory.size();
+    baselinePages = peakPages = <u64>memory.size();
   }
 
   let warmup = ops / 10;
@@ -146,15 +139,15 @@ export function bench(
   ops = totalOps;
 
   let retainedLiveBytes: u64 = 0;
-  let inflightLiveBytes: u64 = 0;
-  let postGcMs: f64 = 0;
+  let collectAndSnapshotMs: f64 = 0;
   let heapDetailJson: string = "";
   if (BENCH_MEMORY) {
-    inflightLiveBytes = walkHeapNoCollect();
-    heapDetailJson = buildHeapDetailDelta();
+    // The analyzer collects once and walks the heap. Report the combined
+    // operation; it cannot provide an in-flight or GC-only measurement.
     const gcStart = performance.now();
     retainedLiveBytes = <u64>getUsedMemorySize();
-    postGcMs = performance.now() - gcStart;
+    collectAndSnapshotMs = performance.now() - gcStart;
+    heapDetailJson = buildHeapDetailDelta();
   }
 
   const opsPerSecond = f64(ops * 1000) / elapsed;
@@ -178,17 +171,16 @@ export function bench(
     memBaselineBytes = baselineLiveBytes;
     memPeakBytes = peakPages * <u64>WASM_PAGE_SIZE;
     memRetainedBytes = retainedLiveBytes;
-    const grew = memPeakBytes > memBaselineBytes ? memPeakBytes - memBaselineBytes : 0;
+    const grew = (peakPages - baselinePages) * <u64>WASM_PAGE_SIZE;
     const netDelta: i64 = <i64>memRetainedBytes - <i64>memBaselineBytes;
-    const inflightDelta: i64 = <i64>inflightLiveBytes - <i64>memBaselineBytes;
-    log += "\n   mem: base=" + memBaselineBytes.toString() +
-      " peak=" + memPeakBytes.toString() +
+    log += "\n   mem: heapBase=" + memBaselineBytes.toString() +
+      " linearBase=" + (baselinePages * <u64>WASM_PAGE_SIZE).toString() +
+      " linearPeak=" + memPeakBytes.toString() +
       " retained=" + memRetainedBytes.toString() +
-      " grew=+" + grew.toString() +
-      " inflight=" + inflightDelta.toString() +
+      " linearGrowth=+" + grew.toString() +
       " net=" + netDelta.toString() +
-      " postGC=" + fixed1(postGcMs) + "ms";
-    log += "\n   heap: " + heapDetailJson;
+      " collect+snapshot=" + fixed1(collectAndSnapshotMs) + "ms";
+    log += "\n   retained heap delta: " + heapDetailJson;
   }
 
   const features: string[] = [];
@@ -207,9 +199,11 @@ export function bench(
     mbps: mbPerSec,
     gbps: mbPerSec / 1000,
     memoryBaselineBytes: memBaselineBytes,
-    memoryPeakBytes: memPeakBytes,
+    memoryLinearBaselineBytes: baselinePages * <u64>WASM_PAGE_SIZE,
+    memoryLinearPeakBytes: memPeakBytes,
+    memoryLinearGrowthBytes: (peakPages - baselinePages) * <u64>WASM_PAGE_SIZE,
     memoryRetainedBytes: memRetainedBytes,
-    memoryPostGcMs: postGcMs,
+    memoryCollectAndSnapshotMs: collectAndSnapshotMs,
     heapDetail: heapDetailJson,
   };
 
@@ -237,7 +231,7 @@ function serializeResult(): string {
   features += "]";
 
   return (
-    '{"language":"' + r.language +
+    '{"benchmarkSchemaVersion":2,"language":"' + r.language +
     '","description":"' + r.description +
     '","runtime":"' + r.runtime +
     '","elapsed":' + r.elapsed.toString() +
@@ -249,9 +243,11 @@ function serializeResult(): string {
     ',"mbps":' + r.mbps.toString() +
     ',"gbps":' + r.gbps.toString() +
     ',"memoryBaselineBytes":' + r.memoryBaselineBytes.toString() +
-    ',"memoryPeakBytes":' + r.memoryPeakBytes.toString() +
+    ',"memoryLinearBaselineBytes":' + r.memoryLinearBaselineBytes.toString() +
+    ',"memoryLinearPeakBytes":' + r.memoryLinearPeakBytes.toString() +
+    ',"memoryLinearGrowthBytes":' + r.memoryLinearGrowthBytes.toString() +
     ',"memoryRetainedBytes":' + r.memoryRetainedBytes.toString() +
-    ',"memoryPostGcMs":' + r.memoryPostGcMs.toString() +
+    ',"memoryCollectAndSnapshotMs":' + r.memoryCollectAndSnapshotMs.toString() +
     ',"heapDetail":' + (r.heapDetail.length > 0 ? r.heapDetail : "{}") +
     "}"
   );

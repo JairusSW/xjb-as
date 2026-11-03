@@ -1,10 +1,10 @@
 // Per-stage latency of the ftoa (f32) pipeline, by input complexity.
 // f32 counterpart of dtoa-stages.bench.ts; stems are ftoa-stages-*. See that
-// file for the stage definitions and how the chart derives the rest.
+// file for the independent kernel and complete-call definitions.
 
 import { bench, dumpToFile, blackbox } from "./lib/bench";
 import { ftoa, ftoa_buffered } from "../ftoa";
-import { benchCoreFloat, benchDigits32 } from "./stage-hooks-comp";
+import { benchCoreFloat, benchDigits32, validateDigits32 } from "./stage-hooks-comp";
 
 const U16 = memory.data(128);
 const SIG_STORE = memory.data(16 * 8);
@@ -52,7 +52,9 @@ benchBucket("randomish", RANDOMISH);
 function benchBucket(bucket: string, samples: f32[]): void {
   current = samples;
   for (let i = 0, n = samples.length; i < n; i++) {
-    store<u64>(SIG_STORE + (<usize>i << 3), benchCoreFloat(unchecked(samples[i])));
+    const sig = benchCoreFloat(unchecked(samples[i]));
+    validateDigits32(sig);
+    store<u64>(SIG_STORE + (<usize>i << 3), sig);
   }
   const bytes = asciiBytes(samples);
   const prefix = "ftoa-stages-" + bucket;

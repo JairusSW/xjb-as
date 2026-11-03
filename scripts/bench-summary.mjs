@@ -54,12 +54,12 @@ const unit = metric === "nsPerOp" ? "ns/op"
   : metric === "opsPerSecond" ? "ops/s"
   : metric;
 
-const hasMemory = rows.some((r) => r.memoryRetainedBytes > 0 || r.memoryPostGcMs > 0);
+const hasMemory = rows.some((r) => r.memoryRetainedBytes > 0 || r.memoryCollectAndSnapshotMs > 0);
 
 console.log(`### Bench summary (${runtime})`);
 console.log();
 const cols = ["bench", `${unit}`, "ns/op", "ops/s"];
-if (hasMemory) cols.push("retained", "post-GC");
+if (hasMemory) cols.push("retained", "collect+snapshot");
 console.log("| " + cols.join(" | ") + " |");
 console.log("| " + cols.map(() => "---:").join(" | ").replace("---:", "---") + " |");
 for (const r of rows) {
@@ -71,7 +71,7 @@ for (const r of rows) {
   ];
   if (hasMemory) {
     row.push(formatBytes(r.memoryRetainedBytes ?? 0));
-    row.push((r.memoryPostGcMs ?? 0).toFixed(1) + " ms");
+    row.push(r.memoryCollectAndSnapshotMs == null ? "n/a" : r.memoryCollectAndSnapshotMs.toFixed(1) + " ms");
   }
   console.log("| " + row.join(" | ") + " |");
 }

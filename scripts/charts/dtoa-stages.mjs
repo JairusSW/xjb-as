@@ -1,4 +1,4 @@
-// dtoa / ftoa per-stage latency breakdown by input complexity.
+// Independent dtoa / ftoa kernel and complete API timings.
 //
 // Stacked bars - each bucket's bar is split into the pipeline stages, summing to
 // the full dtoa()/ftoa() cost:
@@ -52,21 +52,24 @@ const BUCKETS_F32 = [
     ["randomish", "randomish", 16],
 ];
 
-// Stacked stages, bottom -> top, coloured from the shared json-as palette.
+// Independent measurements; public integer paths can bypass the kernels.
 const STAGES = [
-    ["core", "core (binary->decimal)", STAGE_BARS.core.bg, STAGE_BARS.core.border],
-    ["digits", "digits (->ASCII)", STAGE_BARS.digits.bg, STAGE_BARS.digits.border],
-    ["noallocRest", "layout + UTF-16", STAGE_BARS.noallocRest.bg, STAGE_BARS.noallocRest.border],
-    ["stringOverhead", "string overhead", STAGE_BARS.stringOverhead.bg, STAGE_BARS.stringOverhead.border],
+    ["core", "general decimal kernel", STAGE_BARS.core.bg, STAGE_BARS.core.border],
+    ["digits", "digit packing kernel", STAGE_BARS.digits.bg, STAGE_BARS.digits.border],
+    ["buffered", "complete buffered API", STAGE_BARS.noallocRest.bg, STAGE_BARS.noallocRest.border],
+    ["string", "complete string API", STAGE_BARS.stringOverhead.bg, STAGE_BARS.stringOverhead.border],
 ];
 
 const ns = (prefix, bucket, stem) => {
     const p = path.join(LOGS, `${prefix}-${bucket}-${stem}.as.json`);
     if (!fs.existsSync(p)) return null;
-    return JSON.parse(fs.readFileSync(p, "utf8")).nsPerOp;
+    const row = JSON.parse(fs.readFileSync(p, "utf8"));
+    if (row.benchmarkSchemaVersion !== 2)
+        throw new Error(`Outdated kernel measurements in ${p}; rerun the stage benchmarks.`);
+    return row.nsPerOp;
 };
 
-// Returns { labels, stages: { core:[], digits:[], noallocRest:[], stringOverhead:[] } }
+// Returns independent normalized core, digits, buffered, and string measurements.
 // or null if no bench data is present for this type.
 function buildBreakdown(type, buckets) {
     const labels = [];
@@ -88,17 +91,12 @@ function buildBreakdown(type, buckets) {
         buffered /= count;
         string /= count;
 
-        // Derived stages. Clamp at 0 - measurement noise (and, for the degenerate
-        // zero/special bucket, the isolated digit kernel running on a 0 significand)
-        // can push a remainder slightly negative.
-        const noallocRest = Math.max(0, buffered - core - digits);
-        const stringOverhead = Math.max(0, string - buffered);
 
         labels.push(label);
         stages.core.push(core);
         stages.digits.push(digits);
-        stages.noallocRest.push(noallocRest);
-        stages.stringOverhead.push(stringOverhead);
+        stages.buffered.push(buffered);
+        stages.string.push(string);
     }
 
     return any ? { labels, stages } : null;
@@ -148,7 +146,7 @@ function makeConfig(breakdown, title) {
             layout: { padding: { top: 24 } },
             scales: {
                 x: {
-                    stacked: true,
+                    stacked: false,
                     ticks: {
                         font: { size: 11 },
                         color: INK.subtitle,
@@ -158,7 +156,7 @@ function makeConfig(breakdown, title) {
                     grid: { color: INK.grid },
                 },
                 y: {
-                    stacked: true,
+                    stacked: false,
                     beginAtZero: true,
                     grace: "8%",
                     title: {
@@ -184,7 +182,7 @@ let wrote = 0;
 const f64 = buildBreakdown("dtoa-stages", BUCKETS_F64);
 if (f64) {
     generateChart(
-        makeConfig(f64, "dtoa (f64) stage breakdown by complexity"),
+        makeConfig(f64, "dtoa (f64) kernels and complete calls by complexity"),
         withRuntime("./charts/dtoa-stages-f64.png"),
         { width: 1600, height: 800 },
     );
@@ -194,7 +192,7 @@ if (f64) {
 const f32 = buildBreakdown("ftoa-stages", BUCKETS_F32);
 if (f32) {
     generateChart(
-        makeConfig(f32, "ftoa (f32) stage breakdown by complexity"),
+        makeConfig(f32, "ftoa (f32) kernels and complete calls by complexity"),
         withRuntime("./charts/dtoa-stages-f32.png"),
         { width: 1600, height: 800 },
     );

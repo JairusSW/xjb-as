@@ -2,13 +2,11 @@
 //
 // Stages timed:
 //   core          binary -> shortest decimal (toDecimalDouble)
-//   core-digits   core + toDigits64 (chain, so digits = core-digits - core)
+//   core-digits   general core plus digit packing, chained
 //   buffered      full no-alloc dtoa_buffered total
 //   string        full allocating dtoa total
 //
-// Chart derives: digits = core-digits - core
-//                noalloc-rest = buffered - core-digits
-//                string-overhead = string - buffered
+// Kernels and complete calls are independent measurements, not additive stages.
 //
 // Stems: dtoa-zmij-vs-xjb-stages-<bucket>-{zmij,xjb}-{core,core-digits,buffered,string}
 // Run: npm run bench -- dtoa-zmij-vs-xjb-stages
@@ -19,11 +17,16 @@ import { dtoa as xjbDtoa,  dtoa_buffered as xjbBuffered  } from "../assembly/dto
 import {
     benchCoreDouble    as zmijBenchCoreDouble,
     benchDigits64      as zmijBenchDigits64,
+    validateDigits64   as zmijValidateDigits64,
 } from "../assembly/__benches__/stage-hooks-zmij";
 import {
     benchCoreDouble    as xjbBenchCoreDouble,
     benchDigits64      as xjbBenchDigits64,
+    validateDigits64   as xjbValidateDigits64,
 } from "../assembly/__benches__/stage-hooks";
+
+import { gSig as xjbSig } from "../assembly/xjb";
+import { gSig as zmijSig } from "../vendor/zmij-as/assembly/dtoa";
 
 const U16 = memory.data(128);
 const OPS: u64 = 100_000;
@@ -80,6 +83,12 @@ benchBucket("randomish", RANDOMISH);
 
 function benchBucket(bucket: string, samples: f64[]): void {
   current = samples;
+  for (let i = 0; i < samples.length; ++i) {
+    xjbBenchCoreDouble(unchecked(samples[i]));
+    xjbValidateDigits64(<u64>xjbSig);
+    zmijBenchCoreDouble(unchecked(samples[i]));
+    zmijValidateDigits64(<u64>zmijSig);
+  }
   const bytes = asciiBytes(samples);
   const prefix = "dtoa-zmij-vs-xjb-stages-" + bucket;
 
@@ -119,12 +128,14 @@ function benchXjbCore(): void {
 // core-digits: core then toDigits64 chained — no pre-computed SIG_STORE needed
 function benchZmijCoreDigits(): void {
   for (let i = 0, n = current.length; i < n; i++) {
-    blackbox<u64>(zmijBenchDigits64(zmijBenchCoreDouble(unchecked(current[i]))));
+    blackbox<u64>(zmijBenchCoreDouble(unchecked(current[i])));
+    blackbox<u64>(zmijBenchDigits64(<u64>zmijSig));
   }
 }
 function benchXjbCoreDigits(): void {
   for (let i = 0, n = current.length; i < n; i++) {
-    blackbox<u64>(xjbBenchDigits64(xjbBenchCoreDouble(unchecked(current[i]))));
+    blackbox<u64>(xjbBenchCoreDouble(unchecked(current[i])));
+    blackbox<u64>(xjbBenchDigits64(<u64>xjbSig));
   }
 }
 

@@ -6,31 +6,18 @@
 // 100% coverage - purely through its four public entry points; the hooks here
 // are exercised only by the *-stages benches, never by the test specs.
 //
-// They let dtoa-stages.bench.ts / ftoa-stages.bench.ts time each pipeline stage
-// of dtoa()/ftoa() in isolation:
-//
-//   core   -> benchCore*    binary -> shortest decimal (Schubfach)
-//   digits -> benchDigits*  decimal significand -> packed ASCII digit block
-//
-// (the layout and String-allocation steps are derived in the chart from the
-// full dtoa_buffered / dtoa totals - see scripts/charts/dtoa-stages.mjs).
-//
-// The benchCore* hooks mirror the formatDouble / formatFloat prologue exactly -
-// including special/subnormal handling and the f32 short-significand fixup - so
-// per-bucket costs stay faithful and the returned value is precisely the
-// significand the writers feed to toDigits64/toDigits32. Keep in sync with
-// formatDouble / formatFloat in dtoa.ts. Each returns a value derived from the
-// stage outputs so the optimizer cannot eliminate the work.
+// These are standalone general-conversion kernels. Integer/special shortcuts
+// in the public API can bypass them, so their timings are not additive stages
+// of a complete dtoa call. Core return values are checksums, not digit inputs.
 import { toDecimalDouble, normalizeDoubleShortest } from "../dtoa";
 import {
-    toDigits64,
+    toDigits64Fixed16,
     gSig,
     gExp,
     gLastDigit,
     gHasLastDigit,
     gDigHi,
     gDigLo,
-    gDigNum,
 } from "../xjb";
 
 export function benchCoreDouble(value: f64): u64 {
@@ -40,8 +27,8 @@ export function benchCoreDouble(value: f64): u64 {
     const expMask = 2047;
     const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
     if (!isNormal) {
-        if (binExp != 0) return 0; // NaN / Infinity: no decimal core work
-        if (binSig == 0) return 0; // +/-0
+        if (binExp != 0) { gSig = 0; return 0; } // NaN / Infinity: no decimal core work
+        if (binSig == 0) { gSig = 0; return 0; } // +/-0
         // subnormal (mirrors formatDouble)
         toDecimalDouble(binSig, 0, true);
     } else {
@@ -59,8 +46,8 @@ export function benchCoreDoubleRaw(value: f64): u64 {
     const expMask = 2047;
     const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
     if (!isNormal) {
-        if (binExp != 0) return 0; // NaN / Infinity: no decimal core work
-        if (binSig == 0) return 0; // +/-0
+        if (binExp != 0) { gSig = 0; return 0; } // NaN / Infinity: no decimal core work
+        if (binSig == 0) { gSig = 0; return 0; } // +/-0
         toDecimalDouble(binSig, 0, true);
     } else {
         toDecimalDouble(binSig, binExp, binSig != 0);
@@ -71,8 +58,20 @@ export function benchCoreDoubleRaw(value: f64): u64 {
 // The f32 core hook lives in stage-hooks-comp.ts. Both cores share result slots.
 
 export function benchDigits64(sig: u64): u64 {
-    toDigits64(sig);
-    return gDigHi ^ gDigLo ^ (<u64>gDigNum);
+    toDigits64Fixed16(sig);
+    return gDigHi ^ gDigLo;
 }
 
 // benchDigits32 lives in stage-hooks-comp.ts.
+
+// Setup-only checks: never run inside the timed digit loop.
+export function validateDigits64(sig: u64): void {
+    if (sig >= 10000000000000000) throw new Error("invalid f64 digit-kernel input");
+    benchDigits64(sig);
+    const expected = sig.toString().padStart(16, "0");
+    for (let i = 0; i < 16; ++i) {
+        const block = i < 8 ? gDigHi : gDigLo;
+        const digit = <u32>(block >> ((i & 7) << 3)) & 255;
+        if (digit != expected.charCodeAt(i)) throw new Error("invalid f64 packed digits");
+    }
+}

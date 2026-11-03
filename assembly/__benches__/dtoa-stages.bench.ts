@@ -1,24 +1,18 @@
 // Per-stage latency of the dtoa (f64) pipeline, by input complexity.
 // (f32 lives in ftoa-stages.bench.ts.) Feeds scripts/charts/dtoa-stages.mjs.
 //
-// Where does a dtoa() call spend its time? Each pipeline stage is timed in
-// isolation across the same complexity buckets as dtoa-comp.bench.ts:
-//   core     -> benchCoreDouble  binary -> shortest decimal (Schubfach)
-//   digits   -> benchDigits64    decimal significand -> packed ASCII digit block
-//   buffered -> dtoa_buffered    full no-alloc UTF-16 total
-//   string   -> dtoa             full allocating total
-//
-// The chart derives the remaining stages:
-//   noalloc-rest    = buffered - core - digits   (layout + direct UTF-16 stores)
-//   string-overhead = string - buffered          (allocation + string widening)
-// so core+digits+noalloc-rest+string-overhead sums back to dtoa().
+// Standalone general-conversion kernels and complete API calls are measured
+// independently. Public integer/special shortcuts can bypass these kernels;
+// do not subtract their timings from public calls to infer layout cost.
 //
 // Each routine loops over the whole bucket array (nsPerOp = ns per pass); the
 // chart divides by sample count. Throughput size = total ASCII output length.
 
 import { bench, dumpToFile, blackbox } from "./lib/bench";
 import { dtoa, dtoa_buffered } from "../dtoa";
-import { benchCoreDouble, benchCoreDoubleRaw, benchDigits64 } from "./stage-hooks";
+import { benchCoreDouble, benchCoreDoubleRaw, benchDigits64, validateDigits64 } from "./stage-hooks";
+
+import { gSig } from "../xjb";
 
 const U16 = memory.data(128);
 const SIG_STORE = memory.data(16 * 8); // decimal significand per sample (u64)
@@ -77,7 +71,10 @@ benchBucket("randomish", RANDOMISH);
 function benchBucket(bucket: string, samples: f64[]): void {
   current = samples;
   for (let i = 0, n = samples.length; i < n; i++) {
-    store<u64>(SIG_STORE + (<usize>i << 3), benchCoreDouble(unchecked(samples[i])));
+    benchCoreDouble(unchecked(samples[i]));
+    const sig = <u64>gSig;
+    validateDigits64(sig);
+    store<u64>(SIG_STORE + (<usize>i << 3), sig);
   }
   const bytes = asciiBytes(samples);
   const prefix = "dtoa-stages-" + bucket;
