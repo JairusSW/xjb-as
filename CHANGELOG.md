@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the PR's public number wrapper, avoiding scratch formatting and copying.
 - Reuse buffered formatters in the allocating fallback to avoid duplicated
   formatter code and match the PR's shared-call structure.
+- Share the integer digit-pair table with float formatting, trim short fixed
+  tails before storing them, and copy short strings without a generic memory-copy call.
 - Tighten the buffered API requirement to 56 bytes (28 UTF-16 code units).
 
 ### Fixed

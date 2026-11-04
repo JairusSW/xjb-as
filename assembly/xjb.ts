@@ -1,8 +1,6 @@
 // Shared float-formatting engine, ported from AssemblyScript PR #3025 at f97f67d.
 // Both widths share the compact power cache, digit packing, and UTF-16 writers.
 
-import { utoa32_dec_core } from "~lib/util/number";
-
 // @ts-ignore: optional compile-time override used by tests and benchmarks
 const HAS_SIMD: bool = isDefined(XJB_SIMD) ? <bool>XJB_SIMD : ASC_FEATURE_SIMD;
 
@@ -404,7 +402,6 @@ function toBcd8(value: u64): i32 {
 ): usize {
   if (decExp < 0) writeUnpacked8(start, BCD_ZEROS);
   let lastDigitChar = <u64>(0x30 + (hasLastDigit ? gLastDigit : 0));
-  let numDigits = hasLastDigit ? 16 : 15;
   let dHi = gDigHi;
   let dLo = gDigLo;
 
@@ -422,7 +419,8 @@ function toBcd8(value: u64): i32 {
 
   // Everything reaching here has a fractional part (exact integers < 1e16 are
   // absorbed by writeUInt16 upstream), so n > decExp + 1 and output is "int.frac".
-  let n = numDigits + 1;
+  // Count the existing zero tail before layout so short decimals need fewer stores.
+  let n = hasLastDigit ? 17 : 16 - packedTrailingZeros16(dHi, dLo);
   let endPos = decExp >= 0 ? n + 1 : n;
 
   // Branchless `decExp < 0 ? 1 - decExp : 0` (decExp >> 31 is all-ones if < 0).
@@ -430,7 +428,7 @@ function toBcd8(value: u64): i32 {
 
   buf += startPos << 1;
   writeUnpacked8(buf, dHi);
-  writeUnpacked8(buf, dLo, 16);
+  if (n > 8) writeUnpacked8(buf, dLo, 16);
   store<u16>(buf + 32, <u32>lastDigitChar);
 
   if (decExp >= 0) {
@@ -463,7 +461,6 @@ function toBcd8(value: u64): i32 {
 
   let end = buf + (endPos << 1);
   if (decExp >= 0 && endPos == decExp + 1) return end;
-  if (!hasLastDigit) end -= <usize>packedTrailingZeros16(dHi, dLo) << 1;
   if (load<u16>(end - 2) == 0x2e) {
     end -= 2;
   }
@@ -517,11 +514,100 @@ function toBcd8(value: u64): i32 {
   return buf + 2;
 }
 
+// Head/tail copies cover short strings without writing beyond the allocation.
+@inline function copy16(dst: usize, src: usize): void {
+  if (HAS_SIMD) v128.store(dst, v128.load(src));
+  else {
+    store<u64>(dst, load<u64>(src));
+    store<u64>(dst, load<u64>(src, 8), 8);
+  }
+}
+
+@inline function copy32(dst: usize, src: usize): void {
+  copy16(dst, src);
+  copy16(dst + 16, src + 16);
+}
+
+@inline function copyStringBytes(dst: usize, src: usize, size: usize): void {
+  if (size > 64) memory.copy(dst, src, size);
+  else if (size > 32) {
+    copy32(dst, src);
+    copy32(dst + size - 32, src + size - 32);
+  } else if (size > 16) {
+    copy16(dst, src);
+    copy16(dst + size - 16, src + size - 16);
+  } else if (size >= 8) {
+    store<u64>(dst, load<u64>(src));
+    store<u64>(dst + size - 8, load<u64>(src + size - 8));
+  } else if (size >= 4) {
+    store<u32>(dst, load<u32>(src));
+    store<u32>(dst + size - 4, load<u32>(src + size - 4));
+  } else if (size >= 2) {
+    store<u16>(dst, load<u16>(src));
+    store<u16>(dst + size - 2, load<u16>(src + size - 2));
+  } else if (size == 1) {
+    store<u8>(dst, load<u8>(src));
+  }
+}
+
 // @ts-ignore: decorator
 @inline export function scratchString(byteLen: usize): string {
   let str = changetype<string>(__new(byteLen, idof<string>()));
-  memory.copy(changetype<usize>(str), SCRATCH, byteLen);
+  copyStringBytes(changetype<usize>(str), SCRATCH, byteLen);
   return str;
+}
+
+// Integer writers share the same UTF-16 digit pairs as float layout.
+function utoa32_dec_lut(buffer: usize, num: u32, offset: usize): void {
+  while (num >= 10000) {
+    // in most VMs i32/u32 div and modulo by constant can be shared and simplificate
+    let t = num / 10000;
+    let r = num % 10000;
+    num = t;
+
+    let d1 = r / 100;
+    let d2 = r % 100;
+
+    let digits1 = <u64>load<u32>(DIGITS + (<usize>d1 << alignof<u32>()));
+    let digits2 = <u64>load<u32>(DIGITS + (<usize>d2 << alignof<u32>()));
+
+    offset -= 4;
+    store<u64>(buffer + (offset << 1), digits1 | (digits2 << 32));
+  }
+
+  if (num >= 100) {
+    let t  = num / 100;
+    let d1 = num % 100;
+    num = t;
+    offset -= 2;
+    let digits = load<u32>(DIGITS + (<usize>d1 << alignof<u32>()));
+    store<u32>(buffer + (offset << 1), digits);
+  }
+
+  if (num >= 10) {
+    offset -= 2;
+    let digits = load<u32>(DIGITS + (<usize>num << alignof<u32>()));
+    store<u32>(buffer + (offset << 1), digits);
+  } else {
+    offset -= 1;
+    let digit = 0x30 + num;
+    store<u16>(buffer + (offset << 1), digit);
+  }
+}
+
+function utoa_dec_simple<T extends number>(buffer: usize, num: T, offset: usize): void {
+  do {
+    let t = num / 10;
+    let r = <u32>(num % 10);
+    num = changetype<T>(t);
+    offset--;
+    store<u16>(buffer + (offset << 1), 0x30 + r);
+  } while (num);
+}
+
+@inline function utoa32_dec_core(buffer: usize, num: u32, offset: usize): void {
+  if (ASC_SHRINK_LEVEL >= 1) utoa_dec_simple<u32>(buffer, num, offset);
+  else utoa32_dec_lut(buffer, num, offset);
 }
 
 // Exact small integers can be written into their final allocation. The callers
