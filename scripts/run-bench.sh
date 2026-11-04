@@ -25,6 +25,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Override the compiler without replacing a developer's node_modules symlink.
+export ASC_BIN="${ASC_BIN:-$ROOT_DIR/node_modules/assemblyscript/bin/asc.js}"
 D8_BIN="${D8_BIN:-}"
 WAVM_BIN="${WAVM_BIN:-wavm}"
 # WAVM's shared library lives in ~/.local/lib after the nightly .deb extraction.
@@ -321,7 +323,7 @@ build_v8() {
   ASC_FLAGS=(-O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --enable bulk-memory --enable simd --exportStart start --exportRuntime ${MEMORY_ASC_ARGS[@]+"${MEMORY_ASC_ARGS[@]}"})
   OPT_FLAGS=("${WASM_OPT_FLAGS[@]}")
   begin_measurement "$file" "$output"
-  npx asc "$file" -o "${output}.tmp" "${ASC_FLAGS[@]}"
+  node "$ASC_BIN" "$file" -o "${output}.tmp" "${ASC_FLAGS[@]}"
   optimize_or_fallback "${output}.tmp" "$output" "${OPT_FLAGS[@]}"
 }
 
@@ -330,7 +332,7 @@ build_wasi() {
   ASC_FLAGS=(-O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --config ./node_modules/@assemblyscript/wasi-shim/asconfig.json --use "$runtime_flag=1" --enable bulk-memory --enable simd --enable sign-extension --exportRuntime ${MEMORY_ASC_ARGS[@]+"${MEMORY_ASC_ARGS[@]}"})
   OPT_FLAGS=(--enable-sign-ext "${WASM_OPT_FLAGS_WASI[@]}")
   begin_measurement "$file" "$output"
-  npx asc "$file" -o "${output}.tmp" "${ASC_FLAGS[@]}"
+  node "$ASC_BIN" "$file" -o "${output}.tmp" "${ASC_FLAGS[@]}"
   optimize_or_fallback "${output}.tmp" "$output" "${OPT_FLAGS[@]}"
 }
 

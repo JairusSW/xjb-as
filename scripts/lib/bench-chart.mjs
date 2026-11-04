@@ -62,7 +62,7 @@ export const fmtNs1 = (v) => parseFloat(Number(v).toFixed(1)).toString();
 export function subtitle() {
     if (!measurement) throw new Error("No measurement metadata loaded for chart subtitle");
     const m = measurement;
-    return [m.measuredAt.slice(0, 10), `v${m.packageVersion}`, `${m.runtime.name} ${m.runtime.version}`,
+    return [m.measuredAt.slice(0, 10), `v${m.packageVersion}`, `${m.runtime.name} ${m.runtime.version.split("\n")[0]}`,
         m.compiler.version, m.source.commit.slice(0, 7) + (m.source.dirty ? " (dirty)" : ""),
         m.machine.cpu, m.machine.arch].join(" • ");
 }

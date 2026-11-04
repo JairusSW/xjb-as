@@ -68,7 +68,7 @@ function main([command, metaFile, ...args]) {
       else if (section) sections[section].push(flag);
       else throw new Error("Expected flag section");
     }
-    const compilerPath = fs.realpathSync(path.join(ROOT, "node_modules/assemblyscript/bin/asc.js"));
+    const compilerPath = fs.realpathSync(process.env.ASC_BIN ?? path.join(ROOT, "node_modules/assemblyscript/bin/asc.js"));
     const m = {
       schemaVersion: 1, runId, source: sourceSnapshot(),
       packageVersion: JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"))).version,
@@ -76,7 +76,7 @@ function main([command, metaFile, ...args]) {
         version: version(process.execPath, [compilerPath, "--version"]),
         moduleSHA256: hash(fs.readFileSync(path.resolve(path.dirname(compilerPath), "../dist/asc.js"))),
       },
-      runtime: { name: runtime, binary, version: version(binary) },
+      runtime: { name: runtime, binary, version: version(binary, [runtime === "wavm" || runtime === "wazero" ? "version" : "--version"]) },
       compilerFlags: sections.compiler,
       optimizer: { version: sections.optimizer.length ? version("wasm-opt") : "disabled", flags: sections.optimizer },
       runtimeFlags: sections.runtime,

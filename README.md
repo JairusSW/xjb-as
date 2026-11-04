@@ -140,7 +140,9 @@ npm run fuzz
 
 ## Benchmarks
 
-Initialize the public comparison dependency before building benchmarks:
+Initialize the public comparison dependency before building benchmarks.
+`ASC_BIN` can select a specific compiler's `bin/asc.js` without replacing the
+installed compiler; its version and hash are captured with the measurements.
 
 ```bash
 git submodule update --init --recursive

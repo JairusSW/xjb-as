@@ -5,9 +5,9 @@ import path from "node:path";
 import {spawnSync} from "node:child_process";
 import {test} from "node:test";
 
-test("runner attaches measurement-time provenance to fake-clock V8 results",()=>{
+test("runner attaches measurement-time provenance across all four runtimes with a fake clock",()=>{
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),"xjb-runner-"));
-  const run=(cmd,args)=>{const p=spawnSync(cmd,args,{cwd:dir,encoding:"utf8",env:{...process.env,D8_BIN:path.join(dir,"fake-engine"),WASMTIME_BIN:path.join(dir,"fake-engine")}});assert.equal(p.status,0,p.stderr+p.stdout);return p;};
+  const run=(cmd,args)=>{const p=spawnSync(cmd,args,{cwd:dir,encoding:"utf8",env:{...process.env,ASC_BIN:path.join(dir,"node_modules/assemblyscript/bin/asc.js"),D8_BIN:path.join(dir,"fake-engine"),WASMTIME_BIN:path.join(dir,"fake-engine"),WAVM_BIN:path.join(dir,"fake-engine"),WAZERO_BIN:path.join(dir,"fake-engine")}});assert.equal(p.status,0,p.stderr+p.stdout);return p;};
   try{
     for(const name of ["scripts/run-bench.sh","scripts/lib/bench-metadata.mjs","assembly/__benches__/lib/bench.ts"]){fs.mkdirSync(path.dirname(path.join(dir,name)),{recursive:true});fs.copyFileSync(name,path.join(dir,name));}
     fs.symlinkSync(path.resolve("node_modules"),path.join(dir,"node_modules"),"dir");
@@ -17,7 +17,7 @@ test("runner attaches measurement-time provenance to fake-clock V8 results",()=>
     fs.writeFileSync(path.join(dir,"fake-engine"),`#!/usr/bin/env node
 import fs from "node:fs";
 import {WASI} from "node:wasi";
-if(process.argv.includes("--version")){console.log("fixture-engine 1.0 (artificial clock)");process.exit(0);}
+if(process.argv.includes("--version")||process.argv.includes("version")){console.log("fixture-engine 1.0 (artificial clock)");process.exit(0);}
 const isWasi=process.argv.includes("run"),bytes=fs.readFileSync(isWasi?process.argv.at(-1):"build/"+process.argv.at(-1));let e,tick=0;
 const text=p=>String.fromCharCode(...new Uint16Array(e.memory.buffer,p,new DataView(e.memory.buffer).getUint32(p-4,true)/2));
 if(isWasi){
@@ -37,11 +37,13 @@ if(isWasi){
     assert.equal(r.measurement.runtime.version,"fixture-engine 1.0 (artificial clock)");assert.equal(r.measurement.optimizer.version,"disabled");
     assert.ok(r.measurement.compilerFlags.includes("-O3"));assert.ok(r.measurement.artifact.sha256);assert.ok(r.measurement.compiler.moduleSHA256);
     assert.ok(Number.isFinite(Date.parse(r.measurement.measuredAt)));
-    run("bash",["scripts/run-bench.sh","--wasmtime","--no-wasm-opt","probe"]);
-    const wasi=JSON.parse(fs.readFileSync(path.join(dir,"build/logs/as/wasmtime/probe.as.json")));
-    assert.equal(wasi.runtime,"wasmtime");assert.equal(wasi.operations,1);
-    assert.equal(wasi.measurement.runtime.name,"wasmtime");
-    assert.ok(wasi.measurement.compilerFlags.includes("AS_BENCH_RUNTIME_WASMTIME=1"));
+    for(const runtime of ["wasmtime","wavm","wazero"]){
+      run("bash",["scripts/run-bench.sh","--"+runtime,"--no-wasm-opt","probe"]);
+      const wasi=JSON.parse(fs.readFileSync(path.join(dir,`build/logs/as/${runtime}/probe.as.json`)));
+      assert.equal(wasi.runtime,runtime);assert.equal(wasi.operations,1);
+      assert.equal(wasi.measurement.runtime.name,runtime);
+      assert.ok(wasi.measurement.compilerFlags.includes("AS_BENCH_RUNTIME_"+runtime.toUpperCase()+"=1"));
+    }
     fs.mkdirSync(path.join(dir,"build/stage"));
     fs.writeFileSync(path.join(dir,"build/stage/chart.png.measurement.json"),JSON.stringify({measurement:r.measurement}));
     run("node",["scripts/lib/bench-metadata.mjs","publish-check","build/stage"]);
