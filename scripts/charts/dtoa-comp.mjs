@@ -66,7 +66,6 @@ export function buildData(prefix, buckets) {
 const opts = {
     metric: "nsPerOp",
     yLabel: "ns per conversion (lower is better)",
-    xRotation: 30,
     labelFormatter: fmtNs1,
 };
 

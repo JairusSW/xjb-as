@@ -81,7 +81,6 @@ if (Object.keys(data).length) {
             yLabel: "ratio (× - higher = bigger gap)",
             title: "dtoa/ftoa overhead ratios: xjb-as vs zmij-as vs stdlib",
             subtitle: subtitle(),
-            xRotation: 60,
             labelFormatter: (v) => v.toFixed(2),
         }),
         withRuntime("./charts/dtoa-overhead.png"),

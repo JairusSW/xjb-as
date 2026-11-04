@@ -56,7 +56,6 @@ function buildData(buckets, series) {
 const chartOpts = {
     metric: "nsPerOp",
     yLabel: "ns per conversion (lower is better)",
-    xRotation: 30,
     labelFormatter: fmtNs1,
 };
 

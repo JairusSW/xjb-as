@@ -67,6 +67,36 @@ export function subtitle() {
         m.machine.cpu, m.machine.arch].join(" • ");
 }
 
+// Keep every category visible. Dense charts wrap at existing separators instead
+// of rotating the text or dropping labels.
+export function categoryTicks(categoryCount) {
+    const maxChars = categoryCount > 8 ? 12 : 22;
+    return {
+        font: { size: 13, weight: "bold" },
+        color: INK.subtitle,
+        autoSkip: false,
+        maxRotation: 0,
+        minRotation: 0,
+        padding: 8,
+        callback(value) {
+            const label = String(this.getLabelForValue(value));
+            const chunks = label.match(/\S+?(?:[\s/-]+|$)/g) ?? [label];
+            const lines = [];
+            let line = "";
+            for (const chunk of chunks) {
+                if (line && (line + chunk).trim().length > maxChars) {
+                    lines.push(line.trim());
+                    line = chunk.trimStart();
+                } else {
+                    line += chunk;
+                }
+            }
+            if (line.trim()) lines.push(line.trim());
+            return lines;
+        },
+    };
+}
+
 // Series colours come from the shared json-as palette; overflow -> GRAY.
 const colorFor = (i) => BARS[i] ?? GRAY;
 
@@ -162,12 +192,7 @@ export function createBarChart(data, opts = {}) {
                     grid: { color: INK.grid },
                 },
                 x: {
-                    ticks: {
-                        font: { size: 11 },
-                        color: INK.subtitle,
-                        maxRotation: opts.xRotation ?? 45,
-                        minRotation: opts.xRotation ?? 45,
-                    },
+                    ticks: categoryTicks(groups.length),
                     grid: { color: INK.grid },
                 },
             },

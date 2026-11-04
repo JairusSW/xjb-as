@@ -47,7 +47,6 @@ function buildData(prefix, buckets) {
 const opts = {
   metric: "mbps",
   yLabel: "MB/s of decimal output (higher is better)",
-  xRotation: 30,
   labelFormatter: (v) => Math.round(v).toString(),
 };
 

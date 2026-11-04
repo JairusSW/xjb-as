@@ -12,6 +12,7 @@ import ChartDataLabels from "chartjs-plugin-datalabels";
 import {
     RESULTS_DIR,
     readBenchFile,
+    categoryTicks,
     generateChart,
     withRuntime,
     subtitle,
@@ -141,12 +142,7 @@ function makeConfig(breakdown, title) {
             scales: {
                 x: {
                     stacked: false,
-                    ticks: {
-                        font: { size: 11 },
-                        color: INK.subtitle,
-                        maxRotation: 30,
-                        minRotation: 30,
-                    },
+                    ticks: categoryTicks(labels.length),
                     grid: { color: INK.grid },
                 },
                 y: {
