@@ -25,10 +25,8 @@ const BUCKETS_F32 = [
 
 const SERIES = [
   ["xjb-noalloc", "xjb no-alloc"],
-  ["zmij-noalloc", "zmij no-alloc"],
   ["stdlib-noalloc", "stdlib no-alloc"],
   ["xjb-alloc", "xjb alloc"],
-  ["zmij-alloc", "zmij alloc"],
   ["stdlib-alloc", "stdlib alloc"],
 ];
 
@@ -53,7 +51,7 @@ const opts = {
 const f64 = buildData("dtoa-comp", BUCKETS_F64);
 if (Object.values(f64).some((g) => Object.keys(g).length)) {
   generateChart(
-    createBarChart(f64, { ...opts, title: "dtoa (f64) throughput: xjb-as vs zmij-as vs stdlib", subtitle: subtitle() }),
+    createBarChart(f64, { ...opts, title: "dtoa (f64) throughput: xjb-as vs stdlib", subtitle: subtitle() }),
     withRuntime("./charts/dtoa-throughput-f64.png"),
     { width: 1600, height: 800 },
   );
@@ -62,7 +60,7 @@ if (Object.values(f64).some((g) => Object.keys(g).length)) {
 const f32 = buildData("ftoa-comp", BUCKETS_F32);
 if (Object.values(f32).some((g) => Object.keys(g).length)) {
   generateChart(
-    createBarChart(f32, { ...opts, title: "ftoa (f32) throughput: xjb-as vs zmij-as vs stdlib", subtitle: subtitle() }),
+    createBarChart(f32, { ...opts, title: "ftoa (f32) throughput: xjb-as vs stdlib", subtitle: subtitle() }),
     withRuntime("./charts/dtoa-throughput-f32.png"),
     { width: 1600, height: 800 },
   );

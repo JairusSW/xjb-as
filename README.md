@@ -140,12 +140,11 @@ npm run fuzz
 
 ## Benchmarks
 
-Initialize the public comparison dependency before building benchmarks.
+Benchmarks compare xjb-as with the AssemblyScript standard library.
 `ASC_BIN` can select a specific compiler's `bin/asc.js` without replacing the
 installed compiler; its version and hash are captured with the measurements.
 
 ```bash
-git submodule update --init --recursive
 npm run bench -- --v8 --wavm
 npm run charts:build -- --v8 --wavm
 npm run charts:serve

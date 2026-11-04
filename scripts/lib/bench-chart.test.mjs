@@ -92,16 +92,12 @@ test("every chart renders complete Wasmtime fixtures into fresh staging only",()
   const buckets64=["zero-special","tiny-fixed","fixed-fractions","long-fixed","small-exponent","large-exponent","subnormal-boundary","randomish"],buckets32=buckets64.filter(s=>s!=="long-fixed");
   const m=metadata();
   const write=stem=>fs.writeFileSync(path.join(logs,stem+".as.json"),JSON.stringify({...row(m),description:stem}));
-  for(const [prefix,buckets] of [["dtoa-comp",buckets64],["ftoa-comp",buckets32]])for(const bucket of buckets)for(const impl of ["xjb","zmij","stdlib"])for(const api of ["alloc","noalloc"])write(`${prefix}-${bucket}-${impl}-${api}`);
+  for(const [prefix,buckets] of [["dtoa-comp",buckets64],["ftoa-comp",buckets32]])for(const bucket of buckets)for(const impl of ["xjb","stdlib"])for(const api of ["alloc","noalloc"])write(`${prefix}-${bucket}-${impl}-${api}`);
   for(const [prefix,buckets] of [["dtoa-stages",buckets64],["ftoa-stages",buckets32]])for(const bucket of buckets)for(const api of ["core","digits","buffered","string"])write(`${prefix}-${bucket}-${api}`);
-  for(const bucket of buckets64)for(const impl of ["xjb","zmij"]){
-    for(const api of ["alloc","noalloc"])write(`dtoa-zmij-vs-xjb-${bucket}-${impl}-${api}`);
-    for(const api of ["core","core-digits","buffered","string"])write(`dtoa-zmij-vs-xjb-stages-${bucket}-${impl}-${api}`);
-  }
   try{
     const p=spawnSync("bash",["scripts/build-charts.sh","--wasmtime"],{encoding:"utf8",env:{...process.env,BENCH_CHART_LOGS_DIR:path.join(dir,"logs"),BENCH_CHART_OUTPUT_DIR:stage}});
     assert.equal(p.status,0,p.stderr+p.stdout);
-    const pngs=fs.readdirSync(stage).filter(n=>n.endsWith(".png"));assert.equal(pngs.length,10);
+    const pngs=fs.readdirSync(stage).filter(n=>n.endsWith(".png"));assert.equal(pngs.length,7);
     for(const png of pngs){assert.match(png,/-wasmtime\.png$/);const manifest=JSON.parse(fs.readFileSync(path.join(stage,png+".measurement.json")));assert.equal(manifest.measurement.group,m.group);assert.ok(manifest.inputs.length>0);}
     fs.rmSync(path.join(logs,"dtoa-comp-tiny-fixed-xjb-alloc.as.json"));
     const missing=spawnSync("bash",["scripts/build-charts.sh","--wasmtime","dtoa-comp"],{encoding:"utf8",env:{...process.env,BENCH_CHART_LOGS_DIR:path.join(dir,"logs"),BENCH_CHART_OUTPUT_DIR:stage}});

@@ -40,9 +40,8 @@ export const INK = {
     grid: "rgba(0,0,0,0.08)",
 };
 
-// Ordered {bg, border} pairs for grouped-bar series. zmij paths come first, so
-// "ours" lands on the cool hues (blue/green) and the stdlib baselines on the
-// warm ones (red/orange) — same spirit as json-as's SIMD-gets-blue ordering.
+// Ordered {bg, border} pairs for grouped-bar series, using cool hues first
+// and warm hues for subsequent comparison series.
 export const BARS = [
     { bg: rgba("pacificBlue", 0.9), border: BASE.pacificBlue },
     { bg: rgba("jungleGreen", 0.85), border: BASE.jungleGreen },

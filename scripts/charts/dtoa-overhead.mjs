@@ -1,10 +1,9 @@
 // dtoa/ftoa overhead ratios vs the AssemblyScript stdlib, by input complexity.
 // Derived from the dtoa-comp-* / ftoa-comp-* bench logs (ratios use raw nsPerOp;
-// the per-pass->per-conversion factor cancels). Four ratios per bucket:
+// the per-pass->per-conversion factor cancels). Three ratios per bucket:
 //   alloc tax        = xjb alloc / xjb no-alloc        (> 1: the String cost)
 //   no-alloc speedup = stdlib no-alloc / xjb no-alloc  (> 1: we win)
 //   alloc speedup    = stdlib alloc / xjb alloc         (> 1: we win)
-//   zmij / xjb       = zmij no-alloc / xjb no-alloc    (> 1: xjb is faster)
 //   bun run bench -- --v8 dtoa-comp ftoa-comp
 
 import fs from "node:fs";
@@ -50,13 +49,11 @@ const ns = (prefix, bucket, suffix) => {
 const ALLOC_TAX = "xjb alloc / no-alloc";
 const NOALLOC_WIN = "stdlib / xjb (no-alloc)";
 const ALLOC_WIN = "stdlib / xjb (alloc)";
-const ZMIJ_XJB = "zmij / xjb (no-alloc)";
 
 function addBuckets(data, prefix, buckets, tag) {
     for (const bucket of buckets) {
         const xn = ns(prefix, bucket, "xjb-noalloc");
         const xa = ns(prefix, bucket, "xjb-alloc");
-        const zn = ns(prefix, bucket, "zmij-noalloc");
         const sn = ns(prefix, bucket, "stdlib-noalloc");
         const sa = ns(prefix, bucket, "stdlib-alloc");
         if ([xn, xa, sn, sa].some((v) => v == null)) continue;
@@ -65,7 +62,6 @@ function addBuckets(data, prefix, buckets, tag) {
             [ALLOC_TAX]: { ratio: xa / xn },
             [NOALLOC_WIN]: { ratio: sn / xn },
             [ALLOC_WIN]: { ratio: sa / xa },
-            ...(zn != null ? { [ZMIJ_XJB]: { ratio: zn / xn } } : {}),
         };
     }
 }
@@ -79,7 +75,7 @@ if (Object.keys(data).length) {
         createBarChart(data, {
             metric: "ratio",
             yLabel: "ratio (× - higher = bigger gap)",
-            title: "dtoa/ftoa overhead ratios: xjb-as vs zmij-as vs stdlib",
+            title: "dtoa/ftoa overhead ratios: xjb-as vs stdlib",
             subtitle: subtitle(),
             labelFormatter: (v) => v.toFixed(2),
         }),

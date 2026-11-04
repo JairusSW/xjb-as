@@ -1,13 +1,12 @@
 // dtoa (f64) latency vs the AssemblyScript stdlib (Grisu2), by input complexity.
 //
-// Six series per bucket: xjb no-alloc, xjb alloc, zmij no-alloc, zmij alloc,
-// stdlib alloc, stdlib buffered. Results land in build/logs/as/<runtime>/ and
+// Four series per bucket: xjb and stdlib, allocating and buffered APIs.
+// Results land in build/logs/as/<runtime>/ and
 // feed scripts/charts/dtoa-comp.mjs (latency), dtoa-throughput.mjs (MB/s) and
 // dtoa-overhead.mjs (ratios).
 
 import { bench, dumpToFile, blackbox } from "../assembly/__benches__/lib/bench";
 import { dtoa, dtoa_buffered } from "../assembly/dtoa";
-import { dtoa as zmijDtoa, dtoa_buffered as zmijDtoaBuffered } from "../vendor/zmij-as/assembly/dtoa";
 import {
   dtoa as stdlibDtoa,
   dtoa_buffered as stdlibDtoaBuffered,
@@ -26,9 +25,7 @@ function outputBytes(samples: f64[], implementation: i32): u64 {
     const value = unchecked(samples[i]);
     if (implementation == 0) bytes += dtoa_buffered(U16, value);
     else if (implementation == 1) bytes += dtoa(value).length;
-    else if (implementation == 2) bytes += zmijDtoaBuffered(U16, value);
-    else if (implementation == 3) bytes += zmijDtoa(value).length;
-    else if (implementation == 4) bytes += stdlibDtoaBuffered<f64>(U16, value);
+    else if (implementation == 2) bytes += stdlibDtoaBuffered<f64>(U16, value);
     else bytes += stdlibDtoa<f64>(value).length;
   }
   return bytes;
@@ -90,16 +87,10 @@ function benchBucket(bucket: string, samples: f64[]): void {
   bench(prefix + "-xjb-alloc", benchXjbAlloc, OPS, outputBytes(samples, 1));
   dumpToFile(prefix + "-xjb-alloc");
 
-  bench(prefix + "-zmij-noalloc", benchZmijNoalloc, OPS, outputBytes(samples, 2));
-  dumpToFile(prefix + "-zmij-noalloc");
-
-  bench(prefix + "-zmij-alloc", benchZmijAlloc, OPS, outputBytes(samples, 3));
-  dumpToFile(prefix + "-zmij-alloc");
-
-  bench(prefix + "-stdlib-alloc", benchStdlibAlloc, OPS, outputBytes(samples, 5));
+  bench(prefix + "-stdlib-alloc", benchStdlibAlloc, OPS, outputBytes(samples, 3));
   dumpToFile(prefix + "-stdlib-alloc");
 
-  bench(prefix + "-stdlib-noalloc", benchStdlibNoalloc, OPS, outputBytes(samples, 4));
+  bench(prefix + "-stdlib-noalloc", benchStdlibNoalloc, OPS, outputBytes(samples, 2));
   dumpToFile(prefix + "-stdlib-noalloc");
 }
 
@@ -111,16 +102,6 @@ function benchXjbNoalloc(): void {
 function benchXjbAlloc(): void {
   for (let i = 0, n = current.length; i < n; i++) {
     blackbox<i32>(dtoa(unchecked(current[i])).length);
-  }
-}
-function benchZmijNoalloc(): void {
-  for (let i = 0, n = current.length; i < n; i++) {
-    blackbox<u32>(zmijDtoaBuffered(U16, unchecked(current[i])));
-  }
-}
-function benchZmijAlloc(): void {
-  for (let i = 0, n = current.length; i < n; i++) {
-    blackbox<i32>(zmijDtoa(unchecked(current[i])).length);
   }
 }
 function benchStdlibAlloc(): void {

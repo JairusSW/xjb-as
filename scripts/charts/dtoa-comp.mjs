@@ -43,8 +43,6 @@ const BUCKETS_F32 = [
 const SERIES = [
     ["xjb-noalloc", "xjb no-alloc"],
     ["xjb-alloc", "xjb alloc"],
-    ["zmij-noalloc", "zmij no-alloc"],
-    ["zmij-alloc", "zmij alloc"],
     ["stdlib-noalloc", "stdlib no-alloc"],
     ["stdlib-alloc", "stdlib alloc"],
 ];
@@ -74,7 +72,7 @@ if (Object.values(f64).some((g) => Object.keys(g).length)) {
     generateChart(
         createBarChart(f64, {
             ...opts,
-            title: "dtoa (f64) latency: xjb-as vs zmij-as vs stdlib",
+            title: "dtoa (f64) latency: xjb-as vs stdlib",
             subtitle: subtitle(),
         }),
         withRuntime("./charts/dtoa-comp-f64.png"),
@@ -87,7 +85,7 @@ if (Object.values(f32).some((g) => Object.keys(g).length)) {
     generateChart(
         createBarChart(f32, {
             ...opts,
-            title: "ftoa (f32) latency: xjb-as vs zmij-as vs stdlib",
+            title: "ftoa (f32) latency: xjb-as vs stdlib",
             subtitle: subtitle(),
         }),
         withRuntime("./charts/dtoa-comp-f32.png"),

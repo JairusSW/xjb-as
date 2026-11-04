@@ -158,16 +158,6 @@ else
   while IFS= read -r file; do FILES+=("$file"); done < <(discover_benches)
 fi
 
-for file in "${FILES[@]}"; do
-  contents="$(<"$file")"
-  if [[ "$contents" == *vendor/zmij-as* || "$contents" == *stage-hooks-zmij* ]]; then
-    if [[ ! -f ./vendor/zmij-as/assembly/dtoa.ts ]]; then
-      echo "Missing comparison dependency vendor/zmij-as. Run: git submodule update --init --recursive" >&2
-      exit 1
-    fi
-  fi
-done
-
 # Compile flags that enable the heap-analyzer transform + the BENCH_TRACK_MEMORY
 # compile-time guard inside bench.ts. Without --memory the bench loop skips all
 # memory-tracking work entirely.

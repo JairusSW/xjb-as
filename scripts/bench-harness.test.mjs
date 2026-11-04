@@ -36,12 +36,11 @@ for(const simd of [false,true])for(const [stem,expected] of [["dtoa",{tiny:[27,3
   test(`${stem} ${simd?"SIMD":"scalar"} accounts for each implementation's actual output`,async()=>{
     const rows=await execute(`assembly/__benches__/${stem}-comp.bench.ts`,{simd});
     const find=(bucket,suffix)=>rows.find(r=>r.description===`${stem}-comp-${bucket}-${suffix}`);
-    for(const bucket of [...new Set(rows.map(r=>r.description.replace(`${stem}-comp-`,"").replace(/-(xjb|zmij|stdlib)-(noalloc|alloc)$/, "")))]){
-      for(const impl of ["xjb","zmij","stdlib"]){assert.equal(find(bucket,`${impl}-alloc`).bytes,find(bucket,`${impl}-noalloc`).bytes);}
+    for(const bucket of [...new Set(rows.map(r=>r.description.replace(`${stem}-comp-`,"").replace(/-(xjb|stdlib)-(noalloc|alloc)$/, "")))]){
+      for(const impl of ["xjb","stdlib"]){assert.equal(find(bucket,`${impl}-alloc`).bytes,find(bucket,`${impl}-noalloc`).bytes);}
     }
     for(const [key,bucket] of [["tiny","tiny-fixed"],["zero","zero-special"],["long","long-fixed"],["large","large-exponent"],["random","randomish"]])if(expected[key]){
       assert.equal(find(bucket,"xjb-noalloc").bytes,expected[key][0]);
-      assert.equal(find(bucket,"zmij-noalloc").bytes,expected[key][0]);
       assert.equal(find(bucket,"stdlib-noalloc").bytes,expected[key][1]);
     }
     for(const r of rows){assert.equal(r.operations,1);assert.equal(r.benchmarkSchemaVersion,3);assert.equal(r.mbps,r.bytes/(r.elapsed/1000)/1e6);}

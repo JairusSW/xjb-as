@@ -3,7 +3,6 @@
 
 import { bench, dumpToFile, blackbox } from "./lib/bench";
 import { ftoa, ftoa_buffered } from "../ftoa";
-import { ftoa as zmijFtoa, ftoa_buffered as zmijFtoaBuffered } from "../../vendor/zmij-as/assembly/dtoa";
 import {
   dtoa as stdlibDtoa,
   dtoa_buffered as stdlibDtoaBuffered,
@@ -20,9 +19,7 @@ function outputBytes(samples: f32[], implementation: i32): u64 {
     const value = unchecked(samples[i]);
     if (implementation == 0) bytes += ftoa_buffered(U16, value);
     else if (implementation == 1) bytes += ftoa(value).length;
-    else if (implementation == 2) bytes += zmijFtoaBuffered(U16, value);
-    else if (implementation == 3) bytes += zmijFtoa(value).length;
-    else if (implementation == 4) bytes += stdlibDtoaBuffered<f32>(U16, value);
+    else if (implementation == 2) bytes += stdlibDtoaBuffered<f32>(U16, value);
     else bytes += stdlibDtoa<f32>(value).length;
   }
   return bytes;
@@ -71,16 +68,10 @@ function benchBucket(bucket: string, samples: f32[]): void {
   dumpToFile(prefix + "-xjb-alloc");
 
 
-  bench(prefix + "-zmij-noalloc", benchZmijNoalloc, OPS, outputBytes(samples, 2));
-  dumpToFile(prefix + "-zmij-noalloc");
-
-  bench(prefix + "-zmij-alloc", benchZmijAlloc, OPS, outputBytes(samples, 3));
-  dumpToFile(prefix + "-zmij-alloc");
-
-  bench(prefix + "-stdlib-alloc", benchStdlibAlloc, OPS, outputBytes(samples, 5));
+  bench(prefix + "-stdlib-alloc", benchStdlibAlloc, OPS, outputBytes(samples, 3));
   dumpToFile(prefix + "-stdlib-alloc");
 
-  bench(prefix + "-stdlib-noalloc", benchStdlibNoalloc, OPS, outputBytes(samples, 4));
+  bench(prefix + "-stdlib-noalloc", benchStdlibNoalloc, OPS, outputBytes(samples, 2));
   dumpToFile(prefix + "-stdlib-noalloc");
 }
 
@@ -92,16 +83,6 @@ function benchXjbNoalloc(): void {
 function benchXjbAlloc(): void {
   for (let i = 0, n = current.length; i < n; i++) {
     blackbox<i32>(ftoa(unchecked(current[i])).length);
-  }
-}
-function benchZmijNoalloc(): void {
-  for (let i = 0, n = current.length; i < n; i++) {
-    blackbox<u32>(zmijFtoaBuffered(U16, unchecked(current[i])));
-  }
-}
-function benchZmijAlloc(): void {
-  for (let i = 0, n = current.length; i < n; i++) {
-    blackbox<i32>(zmijFtoa(unchecked(current[i])).length);
   }
 }
 function benchStdlibAlloc(): void {
