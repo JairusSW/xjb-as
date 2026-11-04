@@ -17,7 +17,6 @@ const BENCH_RUNTIME_WAVM: bool = isDefined(AS_BENCH_RUNTIME_WAVM);
 const BENCH_RUNTIME_WAZERO: bool = isDefined(AS_BENCH_RUNTIME_WAZERO);
 // @ts-expect-error: compile-time flags may be undefined.
 const BENCH_RUNTIME_WASMTIME: bool = isDefined(AS_BENCH_RUNTIME_WASMTIME);
-const BENCH_RUNTIME_STDOUT: bool = BENCH_RUNTIME_WAVM || BENCH_RUNTIME_WAZERO || BENCH_RUNTIME_WASMTIME;
 
 // @ts-expect-error: BENCH_TRACK_MEMORY may be undefined.
 const BENCH_MEMORY: bool = isDefined(BENCH_TRACK_MEMORY);
@@ -80,6 +79,14 @@ function benchRuntimeName(): string {
   }
 }
 
+function checkedHeapBytes(): u64 {
+  const used = getUsedMemorySize();
+  if (used == u32.MAX_VALUE || <u64>used > <u64>memory.size() * <u64>WASM_PAGE_SIZE) {
+    throw new Error("Heap analyzer failed: unsupported or invalid heap layout; no memory measurement produced");
+  }
+  return <u64>used;
+}
+
 function buildHeapDetailDelta(): string {
   let parts: string[] = [];
   for (let i: u32 = 0; i < HEAP_DETAIL_SLOTS; i++) {
@@ -110,7 +117,7 @@ export function bench(
   let peakPages: u64 = 0;
   let baselinePages: u64 = 0;
   if (BENCH_MEMORY) {
-    baselineLiveBytes = <u64>getUsedMemorySize();
+    baselineLiveBytes = checkedHeapBytes();
     memory.copy(heapDetailSnapshot, memoryDetail, HEAP_DETAIL_SLOTS * 4);
     baselinePages = peakPages = <u64>memory.size();
   }
@@ -145,7 +152,7 @@ export function bench(
     // The analyzer collects once and walks the heap. Report the combined
     // operation; it cannot provide an in-flight or GC-only measurement.
     const gcStart = performance.now();
-    retainedLiveBytes = <u64>getUsedMemorySize();
+    retainedLiveBytes = checkedHeapBytes();
     collectAndSnapshotMs = performance.now() - gcStart;
     heapDetailJson = buildHeapDetailDelta();
   }
@@ -213,11 +220,8 @@ export function bench(
 export function dumpToFile(suite: string): void {
   const fileName = "./build/logs/as/" + benchRuntimeName() + "/" + suite + ".as.json";
   const json = serializeResult();
-  if (BENCH_RUNTIME_STDOUT) {
-    console.log("__AS_BENCH_JSON__" + fileName + "\t" + json);
-    return;
-  }
-  writeFile(fileName, json);
+  // All engines use the host runner to attach source/build metadata atomically.
+  console.log("__AS_BENCH_JSON__" + fileName + "\t" + json);
 }
 
 function serializeResult(): string {
@@ -231,7 +235,7 @@ function serializeResult(): string {
   features += "]";
 
   return (
-    '{"benchmarkSchemaVersion":2,"language":"' + r.language +
+    '{"benchmarkSchemaVersion":3,"language":"' + r.language +
     '","description":"' + r.description +
     '","runtime":"' + r.runtime +
     '","elapsed":' + r.elapsed.toString() +

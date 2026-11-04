@@ -18,8 +18,20 @@ const OPS: u64 = 100_000;
 
 // Throughput size = total ASCII output length (chars) the routine produces in
 // one pass over the bucket, so MB/s reflects decimal bytes emitted per second.
-function asciiBytes(samples: f64[]): u64 {
-  return u64(samples.map<string>((s) => s.toString()).join("").length);
+// Decimal output is ASCII: one UTF-16 code unit represents one output byte.
+// Measure the API actually timed, since stdlib retains trailing ".0".
+function outputBytes(samples: f64[], implementation: i32): u64 {
+  let bytes: u64 = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const value = unchecked(samples[i]);
+    if (implementation == 0) bytes += dtoa_buffered(U16, value);
+    else if (implementation == 1) bytes += dtoa(value).length;
+    else if (implementation == 2) bytes += zmijDtoaBuffered(U16, value);
+    else if (implementation == 3) bytes += zmijDtoa(value).length;
+    else if (implementation == 4) bytes += stdlibDtoaBuffered<f64>(U16, value);
+    else bytes += stdlibDtoa<f64>(value).length;
+  }
+  return bytes;
 }
 
 const ZERO_SPECIAL: f64[] = [
@@ -70,25 +82,24 @@ benchBucket("randomish", RANDOMISH);
 
 function benchBucket(bucket: string, samples: f64[]): void {
   current = samples;
-  const bytes = asciiBytes(samples);
   const prefix = "dtoa-comp-" + bucket;
 
-  bench(prefix + "-xjb-noalloc", benchXjbNoalloc, OPS, bytes);
+  bench(prefix + "-xjb-noalloc", benchXjbNoalloc, OPS, outputBytes(samples, 0));
   dumpToFile(prefix + "-xjb-noalloc");
 
-  bench(prefix + "-xjb-alloc", benchXjbAlloc, OPS, bytes);
+  bench(prefix + "-xjb-alloc", benchXjbAlloc, OPS, outputBytes(samples, 1));
   dumpToFile(prefix + "-xjb-alloc");
 
-  bench(prefix + "-zmij-noalloc", benchZmijNoalloc, OPS, bytes);
+  bench(prefix + "-zmij-noalloc", benchZmijNoalloc, OPS, outputBytes(samples, 2));
   dumpToFile(prefix + "-zmij-noalloc");
 
-  bench(prefix + "-zmij-alloc", benchZmijAlloc, OPS, bytes);
+  bench(prefix + "-zmij-alloc", benchZmijAlloc, OPS, outputBytes(samples, 3));
   dumpToFile(prefix + "-zmij-alloc");
 
-  bench(prefix + "-stdlib-alloc", benchStdlibAlloc, OPS, bytes);
+  bench(prefix + "-stdlib-alloc", benchStdlibAlloc, OPS, outputBytes(samples, 5));
   dumpToFile(prefix + "-stdlib-alloc");
 
-  bench(prefix + "-stdlib-noalloc", benchStdlibNoalloc, OPS, bytes);
+  bench(prefix + "-stdlib-noalloc", benchStdlibNoalloc, OPS, outputBytes(samples, 4));
   dumpToFile(prefix + "-stdlib-noalloc");
 }
 

@@ -1,14 +1,7 @@
 // Independent dtoa / ftoa kernel and complete API timings.
 //
-// Stacked bars - each bucket's bar is split into the pipeline stages, summing to
-// the full dtoa()/ftoa() cost:
-//   core   (measured)  binary -> shortest decimal (Schubfach)
-//   digits (measured)  decimal significand -> packed ASCII digit block
-//   noalloc-rest (derived) digit placement + direct UTF-16 stores
-//   string-overhead (derived) allocation + string-path widening
-//
-// where noalloc-rest = buffered - core - digits and
-// string-overhead = string - buffered.
+// Kernel timings are independent of complete API calls, which can bypass them.
+// They are neither additive nor subtracted from the complete call timings.
 //
 // Run the bench first:
 //   bun run bench -- --v8 dtoa-stages     (or --wavm / --wazero)
@@ -17,6 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import {
+    RESULTS_DIR,
+    readBenchFile,
     generateChart,
     withRuntime,
     subtitle,
@@ -27,7 +22,7 @@ import {
 } from "../lib/bench-chart.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
+const LOGS = RESULTS_DIR;
 
 // [key, label, sampleCount] - counts must match the arrays in the bench so the
 // per-pass nsPerOp can be normalized to ns per single conversion.
@@ -62,9 +57,8 @@ const STAGES = [
 
 const ns = (prefix, bucket, stem) => {
     const p = path.join(LOGS, `${prefix}-${bucket}-${stem}.as.json`);
-    if (!fs.existsSync(p)) return null;
-    const row = JSON.parse(fs.readFileSync(p, "utf8"));
-    if (row.benchmarkSchemaVersion !== 2)
+    const row = readBenchFile(p);
+    if (row.benchmarkSchemaVersion !== 3)
         throw new Error(`Outdated kernel measurements in ${p}; rerun the stage benchmarks.`);
     return row.nsPerOp;
 };

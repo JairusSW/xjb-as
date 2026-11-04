@@ -11,6 +11,8 @@ import fs from "node:fs";
 import path from "node:path";
 import {
     createBarChart,
+    RESULTS_DIR,
+    readBenchFile,
     generateChart,
     withRuntime,
     subtitle,
@@ -18,7 +20,7 @@ import {
 } from "../lib/bench-chart.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
+const LOGS = RESULTS_DIR;
 
 const BUCKETS_F64 = [
     "zero-special",
@@ -42,9 +44,7 @@ const BUCKETS_F32 = [
 
 const ns = (prefix, bucket, suffix) => {
     const p = path.join(LOGS, `${prefix}-${bucket}-${suffix}.as.json`);
-    return fs.existsSync(p)
-        ? JSON.parse(fs.readFileSync(p, "utf8")).nsPerOp
-        : null;
+    return readBenchFile(p).nsPerOp;
 };
 
 const ALLOC_TAX = "xjb alloc / no-alloc";

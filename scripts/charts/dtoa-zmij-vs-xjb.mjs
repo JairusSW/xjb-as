@@ -6,6 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import {
     createBarChart,
+    RESULTS_DIR,
+    readBenchFile,
     generateChart,
     withRuntime,
     subtitle,
@@ -14,7 +16,7 @@ import {
 } from "../lib/bench-chart.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
+const LOGS = RESULTS_DIR;
 
 // [key, label, sampleCount]
 const BUCKETS = [
@@ -44,8 +46,7 @@ function buildData(buckets, series) {
         data[label] = {};
         for (const [suffix, seriesLabel] of series) {
             const p = path.join(LOGS, `dtoa-zmij-vs-xjb-${key}-${suffix}.as.json`);
-            if (!fs.existsSync(p)) continue;
-            const r = JSON.parse(fs.readFileSync(p, "utf8"));
+            const r = readBenchFile(p);
             data[label][seriesLabel] = { ...r, nsPerOp: r.nsPerOp / n };
         }
     }
@@ -57,7 +58,6 @@ const chartOpts = {
     yLabel: "ns per conversion (lower is better)",
     xRotation: 30,
     labelFormatter: fmtNs1,
-    subtitle: subtitle(),
 };
 
 let wrote = 0;

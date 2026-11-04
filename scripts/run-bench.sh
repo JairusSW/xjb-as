@@ -12,8 +12,8 @@
 #   --runtime <r>  Override AS runtime (incremental|minimal|stub or a path).
 #               Default: incremental (proper GC). minimal OOMs alloc-heavy benches
 #               (no auto-GC).
-#   --memory    Enable as-heap-analyzer; bench output includes per-class
-#               retained/in-flight bytes
+#   --memory    Enable as-heap-analyzer (incremental runtime only); includes per-class
+#               retained heap bytes and linear-memory capacity
 #   --no-wasm-opt  Skip the wasm-opt -O4 post-pass (it runs by default for every
 #               runtime, including WAVM, when wasm-opt is on PATH)
 #   --list      List discoverable bench files and exit
@@ -100,6 +100,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --runtime)
       shift
+      [[ $# -gt 0 ]] || { echo "--runtime requires a value" >&2; exit 1; }
       AS_RUNTIME="$1"
       shift
       ;;
@@ -130,25 +131,27 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-
-if [[ ${#ARGS[@]} -gt 0 ]]; then
-  BENCH_NAME="${ARGS[0]}"
+if [[ $BENCH_MEMORY -eq 1 && "$AS_RUNTIME" != incremental ]]; then
+  echo "--memory requires --runtime incremental; other heap layouts are unsupported" >&2
+  exit 1
 fi
 
 mkdir -p ./build/logs/as/{v8,wavm,wasmtime,wazero}
 
 FILES=()
 
-if [[ -n "$BENCH_NAME" ]]; then
-  [[ "$BENCH_NAME" != *.bench.ts ]] && BENCH_NAME="$BENCH_NAME.bench.ts"
-  if [[ -f "./assembly/__benches__/$BENCH_NAME" ]]; then
-    FILES=( "./assembly/__benches__/$BENCH_NAME" )
-  elif [[ -f "./benches/$BENCH_NAME" ]]; then
-    FILES=( "./benches/$BENCH_NAME" )
-  else
-    echo "❌ No benchmark found for '${ARGS[0]}'"
-    exit 1
-  fi
+if [[ ${#ARGS[@]} -gt 0 ]]; then
+  for BENCH_NAME in "${ARGS[@]}"; do
+    [[ "$BENCH_NAME" != *.bench.ts ]] && BENCH_NAME="$BENCH_NAME.bench.ts"
+    if [[ -f "./assembly/__benches__/$BENCH_NAME" ]]; then
+      FILES+=( "./assembly/__benches__/$BENCH_NAME" )
+    elif [[ -f "./benches/$BENCH_NAME" ]]; then
+      FILES+=( "./benches/$BENCH_NAME" )
+    else
+      echo "❌ No benchmark found for '$BENCH_NAME'"
+      exit 1
+    fi
+  done
 else
   while IFS= read -r file; do FILES+=("$file"); done < <(discover_benches)
 fi
@@ -207,26 +210,34 @@ if [[ $RUN_WAZERO -eq 1 ]] && ! command -v "$WAZERO_BIN" >/dev/null 2>&1; then
 fi
 
 
-consume_bench_output() {
-  local tmp="$1"
+BENCH_RUN_ID="$(node -e 'console.log(crypto.randomUUID())')"
+CURRENT_METADATA="$(mktemp)"
+trap 'rm -f "$CURRENT_METADATA"' EXIT
 
-  while IFS= read -r line; do
-    if [[ "$line" == __AS_BENCH_JSON__* ]]; then
-      local payload file_name json
-      payload="${line#__AS_BENCH_JSON__}"
-      file_name="${payload%%$'\t'*}"
-      json="${payload#*$'\t'}"
-      mkdir -p "$(dirname "$file_name")"
-      printf "%s" "$json" >"$file_name"
-    else
-      echo "$line"
-    fi
-  done <"$tmp"
+begin_measurement() {
+  local file="$1" output="$2"
+  local optimizer=()
+  if [[ "$WASM_OPT" == 1 ]] && command -v wasm-opt >/dev/null 2>&1; then
+    optimizer=("${OPT_FLAGS[@]}")
+  fi
+  node ./scripts/lib/bench-metadata.mjs begin "$CURRENT_METADATA" "$BENCH_RUN_ID" \
+    "$ACTIVE_RUNTIME" "$ACTIVE_BINARY" "$file" "$output" \
+    --compiler-flags "${ASC_FLAGS[@]}" --optimizer-flags ${optimizer[@]+"${optimizer[@]}"} \
+    --runtime-flags ${ACTIVE_FLAGS[@]+"${ACTIVE_FLAGS[@]}"}
+}
+
+consume_bench_output() {
+  node ./scripts/lib/bench-metadata.mjs finish "$CURRENT_METADATA" "$1"
 }
 
 run_v8_module() {
-  local wasm_arg="$1"
-  "$D8_BIN" --no-liftoff --module ./bench/runners/assemblyscript.js -- "$wasm_arg"
+  local tmp
+  tmp="$(mktemp)"
+  if ! "$D8_BIN" --no-liftoff --module ./bench/runners/assemblyscript.js -- "$1" >"$tmp" 2>&1; then
+    cat "$tmp"; rm -f "$tmp"; return 1
+  fi
+  consume_bench_output "$tmp"
+  rm -f "$tmp"
 }
 
 run_wavm_module() {
@@ -277,7 +288,7 @@ run_wazero_module() {
   tmp="$(mktemp)"
 
   if [[ ${#WAZERO_RUN_FLAGS_ARR[@]} -gt 0 ]]; then
-    if ! "$WAZERO_BIN" run "${WAZERO_RUN_FLAGS_ARR[@]}" "./build/$wasm_arg" >"$tmp" 2>&1; then
+    if ! "$WAZERO_BIN" run ${WAZERO_RUN_FLAGS_ARR[@]+"${WAZERO_RUN_FLAGS_ARR[@]}"} "./build/$wasm_arg" >"$tmp" 2>&1; then
       cat "$tmp"
       rm -f "$tmp"
       return 1
@@ -306,20 +317,21 @@ optimize_or_fallback() {
 }
 
 build_v8() {
-  local file="$1"
-  local output="$2"
-
-  npx asc "$file" -o "${output}.tmp" -O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --enable bulk-memory --enable simd --exportStart start --exportRuntime "${MEMORY_ASC_ARGS[@]}"
-  optimize_or_fallback "${output}.tmp" "$output" "${WASM_OPT_FLAGS[@]}"
+  local file="$1" output="$2"
+  ASC_FLAGS=(-O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --enable bulk-memory --enable simd --exportStart start --exportRuntime ${MEMORY_ASC_ARGS[@]+"${MEMORY_ASC_ARGS[@]}"})
+  OPT_FLAGS=("${WASM_OPT_FLAGS[@]}")
+  begin_measurement "$file" "$output"
+  npx asc "$file" -o "${output}.tmp" "${ASC_FLAGS[@]}"
+  optimize_or_fallback "${output}.tmp" "$output" "${OPT_FLAGS[@]}"
 }
 
 build_wasi() {
-  local file="$1"
-  local output="$2"
-  local runtime_flag="$3"
-
-  npx asc "$file" -o "${output}.tmp" -O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --config ./node_modules/@assemblyscript/wasi-shim/asconfig.json --use "$runtime_flag=1" --enable bulk-memory --enable simd --enable sign-extension --exportRuntime "${MEMORY_ASC_ARGS[@]}"
-  optimize_or_fallback "${output}.tmp" "$output" --enable-sign-ext "${WASM_OPT_FLAGS_WASI[@]}"
+  local file="$1" output="$2" runtime_flag="$3"
+  ASC_FLAGS=(-O3 --converge --noAssert --uncheckedBehavior always --runtime "$AS_RUNTIME" --config ./node_modules/@assemblyscript/wasi-shim/asconfig.json --use "$runtime_flag=1" --enable bulk-memory --enable simd --enable sign-extension --exportRuntime ${MEMORY_ASC_ARGS[@]+"${MEMORY_ASC_ARGS[@]}"})
+  OPT_FLAGS=(--enable-sign-ext "${WASM_OPT_FLAGS_WASI[@]}")
+  begin_measurement "$file" "$output"
+  npx asc "$file" -o "${output}.tmp" "${ASC_FLAGS[@]}"
+  optimize_or_fallback "${output}.tmp" "$output" "${OPT_FLAGS[@]}"
 }
 
 for file in "${FILES[@]}"; do
@@ -327,30 +339,38 @@ for file in "${FILES[@]}"; do
   output="./build/${filename%.ts}"
 
   if [[ $RUN_V8 -eq 1 ]]; then
+    ACTIVE_RUNTIME=v8; ACTIVE_BINARY="$D8_BIN"; ACTIVE_FLAGS=(--no-liftoff --module ./bench/runners/assemblyscript.js --)
     wasm_arg="${filename%.ts}.v8.wasm"
     build_v8 "$file" "${output}.v8.wasm"
     echo -e "$filename (asc/v8)\n"
+    node ./scripts/lib/bench-metadata.mjs start "$CURRENT_METADATA"
     run_v8_module "$wasm_arg"
   fi
 
   if [[ $RUN_WAVM -eq 1 ]]; then
+    ACTIVE_RUNTIME=wavm; ACTIVE_BINARY="$WAVM_BIN"; ACTIVE_FLAGS=("${WAVM_RUN_FLAGS_ARR[@]}")
     wasm_arg="${filename%.ts}.wavm.wasm"
     build_wasi "$file" "${output}.wavm.wasm" "AS_BENCH_RUNTIME_WAVM"
     echo -e "$filename (asc/wavm)\n"
+    node ./scripts/lib/bench-metadata.mjs start "$CURRENT_METADATA"
     run_wavm_module "$wasm_arg"
   fi
 
   if [[ $RUN_WASMTIME -eq 1 ]]; then
+    ACTIVE_RUNTIME=wasmtime; ACTIVE_BINARY="$WASMTIME_BIN"; ACTIVE_FLAGS=("${WASMTIME_RUN_FLAGS_ARR[@]}")
     wasm_arg="${filename%.ts}.wasmtime.wasm"
     build_wasi "$file" "${output}.wasmtime.wasm" "AS_BENCH_RUNTIME_WASMTIME"
     echo -e "$filename (asc/wasmtime)\n"
+    node ./scripts/lib/bench-metadata.mjs start "$CURRENT_METADATA"
     run_wasmtime_module "$wasm_arg"
   fi
 
   if [[ $RUN_WAZERO -eq 1 ]]; then
+    ACTIVE_RUNTIME=wazero; ACTIVE_BINARY="$WAZERO_BIN"; ACTIVE_FLAGS=(${WAZERO_RUN_FLAGS_ARR[@]+"${WAZERO_RUN_FLAGS_ARR[@]}"})
     wasm_arg="${filename%.ts}.wazero.wasm"
     build_wasi "$file" "${output}.wazero.wasm" "AS_BENCH_RUNTIME_WAZERO"
     echo -e "$filename (asc/wazero)\n"
+    node ./scripts/lib/bench-metadata.mjs start "$CURRENT_METADATA"
     run_wazero_module "$wasm_arg"
   fi
 done

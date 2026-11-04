@@ -19,8 +19,6 @@ cd "$ROOT_DIR"
 
 REMOTE_NAME="${REMOTE_NAME:-origin}"
 DOCS_BRANCH="${DOCS_BRANCH:-docs}"
-SHA="$(git rev-parse --short HEAD)"
-VERSION="$(node -p "require('./package.json').version")"
 # DEST (charts/v<version>/<NN>-<commit>/) is computed after the docs worktree is
 # ready, so the NN sequence can be derived from what's already published.
 RUN_BENCHES=1
@@ -32,7 +30,8 @@ WORKTREE_ADDED=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-run) RUN_BENCHES=0; shift ;;
-    --v8|--wavm|--llvm|--wasmtime|--wazero) RT_ARGS+=("$1"); shift ;;
+    --llvm) RT_ARGS+=("--wavm"); shift ;;
+    --v8|--wavm|--wasmtime|--wazero) RT_ARGS+=("$1"); shift ;;
     *)
       echo "Unknown option: $1"
       echo "Usage: ./scripts/publish-charts.sh [--no-run] [--v8|--wavm|--wasmtime|--wazero]"
@@ -53,8 +52,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# A dirty working tree is fine: charts are committed on a separate `docs`
-# worktree, so the publish never touches the current branch's tracked files.
+# Publishing requires clean, matching measured sources; checked before remote writes.
 
 if [[ "$RUN_BENCHES" == "1" ]]; then
   for rt in "${RT_ARGS[@]}"; do
@@ -67,11 +65,12 @@ fi
 
 echo "Building charts (${RT_ARGS[*]})..."
 for rt in "${RT_ARGS[@]}"; do
-  bash ./scripts/build-charts.sh "$rt"
+  BENCH_CHART_OUTPUT_DIR="$TMP_CHARTS_DIR" bash ./scripts/build-charts.sh "$rt"
 done
-test -d ./charts
-compgen -G "./charts/*.png" > /dev/null
-cp -R ./charts/. "$TMP_CHARTS_DIR/"
+compgen -G "$TMP_CHARTS_DIR/*.png" > /dev/null
+PUBLICATION="$(node ./scripts/lib/bench-metadata.mjs publish-check "$TMP_CHARTS_DIR")"
+SHA="$(node -e 'console.log(JSON.parse(process.argv[1]).source.commit.slice(0, 7))' "$PUBLICATION")"
+VERSION="$(node -e 'console.log(JSON.parse(process.argv[1]).packageVersion)' "$PUBLICATION")"
 
 echo "Preparing ${DOCS_BRANCH} worktree..."
 git fetch "$REMOTE_NAME" "$DOCS_BRANCH" >/dev/null 2>&1 || true
@@ -113,14 +112,22 @@ cp -R "$TMP_CHARTS_DIR/." "$TMP_DOCS_DIR/charts/${DEST}/"
   fi
   git config user.name "${GIT_AUTHOR_NAME:-$(git config --get user.name || echo xjb-as)}"
   git config user.email "${GIT_AUTHOR_EMAIL:-$(git config --get user.email || echo xjb-as@example.com)}"
-  git commit -m "Update benchmark charts for ${DEST} [skip ci]" >/dev/null
+  git commit -m "docs: update benchmark charts for ${DEST} [skip ci]" >/dev/null
   git push "$REMOTE_NAME" "$DOCS_BRANCH"
 )
 
 # Re-pin the README chart <img> URLs to the version/commit just published, so a
 # README revision references the charts built from its own code. Left uncommitted.
 echo "Pinning README chart URLs to ${DEST}..."
-sed -i -E "s#(/docs/charts/)[^\"']*/([^/\"']+\.png)#\1${DEST}/\2#g" README.md
+node --input-type=module - "$TMP_CHARTS_DIR" "$DEST" <<'JS'
+import fs from "node:fs";
+import path from "node:path";
+const [dir, dest] = process.argv.slice(2);
+const generated = new Set(fs.readdirSync(dir).filter(n => n.endsWith(".png")));
+const readme = fs.readFileSync("README.md", "utf8");
+fs.writeFileSync("README.md", readme.replace(/(\/docs\/charts\/)[^"']*\/([^/"']+\.png)/g,
+  (original, prefix, name) => generated.has(name) ? `${prefix}${dest}/${name}` : original));
+JS
 
 echo "Charts published to ${REMOTE_NAME}/${DOCS_BRANCH}:charts/${DEST}/ (old folders pruned)"
 echo "README pinned to https://raw.githubusercontent.com/JairusSW/xjb-as/refs/heads/docs/charts/${DEST}/"

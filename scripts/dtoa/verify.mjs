@@ -8,12 +8,21 @@
 //       below) is cross-validated against V8 on the f64 path, so a bug in it
 //       surfaces as an f64 mismatch too.
 //
-// Usage: node scripts/dtoa/verify.mjs [nRandom]
+// Usage: node scripts/dtoa/verify.mjs [nRandom] (0 explicitly selects edges only)
 import { readFileSync } from "node:fs";
 import {
   ecmaFormat, refDouble, refFloat,
   f64bits, f32bits, f64from, f32from,
 } from "./lib/oracle.mjs";
+
+// Validate before loading Wasm or doing any verification work.
+const args = process.argv.slice(2);
+const N = args.length === 0 ? 2_000_000 : Number(args[0]);
+if (args.length > 1 || (args.length === 1 && args[0].trim() === "") ||
+    !Number.isSafeInteger(N) || N < 0) {
+  console.error("invalid verify arguments: expected one nonnegative safe-integer count (0 = edges only)");
+  process.exit(2);
+}
 
 // Load each build target as its own module (see scripts/dtoa/build.sh):
 //   dtoa       optimized f64    (build/dtoa.wasm)
@@ -111,7 +120,6 @@ const edgeFails = fails;
 console.log(`edge cases: ${edgeFails === 0 ? "OK" : edgeFails + " FAIL"}`);
 
 // ---- Random fuzz -----------------------------------------------------------
-const N = parseInt(process.argv[2] || "2000000", 10);
 let rng = 0x12345678 >>> 0;
 function rand32() { rng ^= rng << 13; rng ^= rng >>> 17; rng ^= rng << 5; return rng >>> 0; }
 function randBig64() { return (BigInt(rand32()) << 32n) | BigInt(rand32()); }

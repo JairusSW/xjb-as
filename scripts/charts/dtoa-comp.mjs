@@ -6,6 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import {
     createBarChart,
+    RESULTS_DIR,
+    readBenchFile,
     generateChart,
     withRuntime,
     subtitle,
@@ -14,7 +16,7 @@ import {
 } from "../lib/bench-chart.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
+const LOGS = RESULTS_DIR;
 
 // [key, label, sampleCount] - counts must match the bench arrays so per-pass
 // nsPerOp can be normalized to ns per single conversion.
@@ -54,15 +56,13 @@ export function buildData(prefix, buckets) {
         data[label] = {};
         for (const [suffix, seriesLabel] of SERIES) {
             const p = path.join(LOGS, `${prefix}-${key}-${suffix}.as.json`);
-            if (!fs.existsSync(p)) continue;
-            const r = JSON.parse(fs.readFileSync(p, "utf8"));
+            const r = readBenchFile(p);
             data[label][seriesLabel] = { ...r, nsPerOp: r.nsPerOp / n }; // per conversion
         }
     }
     return data;
 }
 
-const sub = subtitle();
 const opts = {
     metric: "nsPerOp",
     yLabel: "ns per conversion (lower is better)",
@@ -76,7 +76,7 @@ if (Object.values(f64).some((g) => Object.keys(g).length)) {
         createBarChart(f64, {
             ...opts,
             title: "dtoa (f64) latency: xjb-as vs zmij-as vs stdlib",
-            subtitle: sub,
+            subtitle: subtitle(),
         }),
         withRuntime("./charts/dtoa-comp-f64.png"),
         { width: 1600, height: 800 },
@@ -89,7 +89,7 @@ if (Object.values(f32).some((g) => Object.keys(g).length)) {
         createBarChart(f32, {
             ...opts,
             title: "ftoa (f32) latency: xjb-as vs zmij-as vs stdlib",
-            subtitle: sub,
+            subtitle: subtitle(),
         }),
         withRuntime("./charts/dtoa-comp-f32.png"),
         { width: 1600, height: 800 },

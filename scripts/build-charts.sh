@@ -21,7 +21,8 @@ TARGETS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --v8)     RUNTIMES+=("v8");     shift ;;
-    --wavm)   RUNTIMES+=("wavm");   shift ;;
+    --wavm|--llvm) RUNTIMES+=("wavm"); shift ;;
+    --wasmtime) RUNTIMES+=("wasmtime"); shift ;;
     --wazero) RUNTIMES+=("wazero"); shift ;;
     --list)
       echo "Available charts:"
@@ -37,6 +38,7 @@ while [[ $# -gt 0 ]]; do
       sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
+    --*) echo "Unknown chart option: $1" >&2; exit 1 ;;
     *) TARGETS+=("$1"); shift ;;
   esac
 done

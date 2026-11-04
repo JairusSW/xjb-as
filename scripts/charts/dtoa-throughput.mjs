@@ -5,10 +5,10 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { createBarChart, generateChart, withRuntime, subtitle, RUNTIME } from "../lib/bench-chart.mjs";
+import { RESULTS_DIR, readBenchFile, createBarChart, generateChart, withRuntime, subtitle, RUNTIME } from "../lib/bench-chart.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
+const LOGS = RESULTS_DIR;
 
 const BUCKETS_F64 = [
   ["zero-special", "zero/special"], ["tiny-fixed", "tiny fixed"],
@@ -38,14 +38,12 @@ function buildData(prefix, buckets) {
     data[label] = {};
     for (const [suffix, seriesLabel] of SERIES) {
       const p = path.join(LOGS, `${prefix}-${key}-${suffix}.as.json`);
-      if (!fs.existsSync(p)) continue;
-      data[label][seriesLabel] = JSON.parse(fs.readFileSync(p, "utf8")); // mbps is a rate
+      data[label][seriesLabel] = readBenchFile(p); // mbps is a rate
     }
   }
   return data;
 }
 
-const sub = subtitle();
 const opts = {
   metric: "mbps",
   yLabel: "MB/s of decimal output (higher is better)",
@@ -56,7 +54,7 @@ const opts = {
 const f64 = buildData("dtoa-comp", BUCKETS_F64);
 if (Object.values(f64).some((g) => Object.keys(g).length)) {
   generateChart(
-    createBarChart(f64, { ...opts, title: "dtoa (f64) throughput: xjb-as vs zmij-as vs stdlib", subtitle: sub }),
+    createBarChart(f64, { ...opts, title: "dtoa (f64) throughput: xjb-as vs zmij-as vs stdlib", subtitle: subtitle() }),
     withRuntime("./charts/dtoa-throughput-f64.png"),
     { width: 1600, height: 800 },
   );
@@ -65,7 +63,7 @@ if (Object.values(f64).some((g) => Object.keys(g).length)) {
 const f32 = buildData("ftoa-comp", BUCKETS_F32);
 if (Object.values(f32).some((g) => Object.keys(g).length)) {
   generateChart(
-    createBarChart(f32, { ...opts, title: "ftoa (f32) throughput: xjb-as vs zmij-as vs stdlib", subtitle: sub }),
+    createBarChart(f32, { ...opts, title: "ftoa (f32) throughput: xjb-as vs zmij-as vs stdlib", subtitle: subtitle() }),
     withRuntime("./charts/dtoa-throughput-f32.png"),
     { width: 1600, height: 800 },
   );

@@ -6,6 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import ChartDataLabels from "chartjs-plugin-datalabels";
 import {
+    RESULTS_DIR,
+    readBenchFile,
     generateChart,
     withRuntime,
     subtitle,
@@ -17,7 +19,7 @@ import {
 import { rgba, BASE } from "../lib/palette.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
-const LOGS = path.join(ROOT, "build", "logs", "as", RUNTIME);
+const LOGS = RESULTS_DIR;
 
 const BUCKETS = [
     ["zero-special",      "zero/special",      8],
@@ -40,9 +42,8 @@ const ZMIJ_BARS = {
 
 const ns = (bucket, impl, stem) => {
     const p = path.join(LOGS, `dtoa-zmij-vs-xjb-stages-${bucket}-${impl}-${stem}.as.json`);
-    if (!fs.existsSync(p)) return null;
-    const row = JSON.parse(fs.readFileSync(p, "utf8"));
-    if (row.benchmarkSchemaVersion !== 2)
+    const row = readBenchFile(p);
+    if (row.benchmarkSchemaVersion !== 3)
         throw new Error(`Outdated kernel measurements in ${p}; rerun the stage benchmarks.`);
     return row.nsPerOp;
 };

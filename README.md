@@ -92,9 +92,9 @@ ftoa_buffered(buffer, value: f32): u32   // write UTF-16 into buffer, return cod
 
 **Buffer contract.** `dtoa_buffered` / `ftoa_buffered` write the shortest decimal
 as UTF-16 *directly* into `buffer` (no intermediate ASCII pass or widening);
-`buffer` needs ≥ 56 bytes (28 UTF-16 code units). The returned code-unit count is exact - the extra
-headroom covers the in-register digit-block stores, which can overshoot the
-logical end by up to one 8-char block.
+`buffer` needs ≥ 56 bytes (28 UTF-16 code units). The returned code-unit count is exact. Always provide the complete 56-byte
+writable region regardless of that count; stores may extend beyond the logical
+output, and contents beyond the returned length are unspecified.
 
 ## Performance
 
@@ -106,7 +106,13 @@ logical end by up to one 8-char block.
 </p>
 
 Charts are published per release to the `docs` branch via `npm run charts:publish`
-(`scripts/publish-charts.sh`) and pinned here by version.
+(`scripts/publish-charts.sh`) and pinned here by version. Benchmark results retain
+source revision and dirty state, source fingerprint, measurement timestamp,
+compiler/runtime versions, build and optimizer flags, machine identity, and the
+Wasm artifact hash. Charts use this saved metadata. Historical logs without it
+must be regenerated. Publishing requires complete results from compatible runs
+on a clean checkout matching the measured revision, and publishes only images
+rendered during that invocation. `--no-run` reuses results subject to these checks.
 
 ## Verification
 
@@ -126,6 +132,7 @@ npm test
 npm run verify
 npm run verify:matrix
 node scripts/dtoa/verify.mjs 3000
+node scripts/dtoa/verify.mjs 0 # explicitly run edges only
 
 # open-ended differential fuzz vs V8 (seeded, repro-friendly; --runs/--time/--seed)
 npm run fuzz
