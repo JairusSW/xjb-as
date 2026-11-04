@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-03
+
 ### Changed
 
 - Port AssemblyScript PR #3025 through `f97f67d`: share an 872-byte power cache
@@ -24,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tighten the buffered API requirement to 56 bytes (28 UTF-16 code units).
 
 ### Fixed
+
+- Correct comparison benchmark output-byte accounting and reject heap-analyzer
+  failures or unsupported memory-tracking runtimes.
+- Preserve measurement provenance, reject missing/mixed chart data, and rebuild
+  publication artifacts in fresh staging directories with consistent runtime routing.
+- Validate verifier/fuzzer arguments and clarify JSON, f32, and writable-buffer contracts.
 
 - Replace binary64-based f32 oracle acceptance with exact BigInt rounding
   intervals and ties-to-even, shared by verification, fuzzing, and spec generation.
@@ -69,4 +77,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `f32` ports under `vendor/xjb/81af30358003c98eda6429fbff0d826e0c259302/`, and
   added Apache-2.0 notice files for the xjb-derived implementations.
 
+[1.0.0]: https://github.com/JairusSW/xjb-as/releases/tag/v1.0.0
 [0.1.0]: https://github.com/JairusSW/xjb-as/releases/tag/v0.1.0

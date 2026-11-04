@@ -1,6 +1,6 @@
 {
     "name": "xjb-as",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "description": "ECMAScript-compatible f64/f32 to string (dtoa/ftoa) for AssemblyScript, on xjb64-derived shortest-decimal cores",
     "type": "module",
     "license": "(MIT AND Apache-2.0)",
