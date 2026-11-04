@@ -5,6 +5,7 @@
 const HAS_SIMD: bool = isDefined(XJB_SIMD) ? <bool>XJB_SIMD : ASC_FEATURE_SIMD;
 
 // Packed UTF-16 digit pairs, shared by integer and exponent writers.
+// @ts-expect-error: valid
 @lazy const DIGITS = memory.data<u32>([
   0x00300030, 0x00310030, 0x00320030, 0x00330030, 0x00340030, 0x00350030, 0x00360030, 0x00370030, 0x00380030, 0x00390030,
   0x00300031, 0x00310031, 0x00320031, 0x00330031, 0x00340031, 0x00350031, 0x00360031, 0x00370031, 0x00380031, 0x00390031,
@@ -17,6 +18,7 @@ const HAS_SIMD: bool = isDefined(XJB_SIMD) ? <bool>XJB_SIMD : ASC_FEATURE_SIMD;
   0x00300038, 0x00310038, 0x00320038, 0x00330038, 0x00340038, 0x00350038, 0x00360038, 0x00370038, 0x00380038, 0x00390038,
   0x00300039, 0x00310039, 0x00320039, 0x00330039, 0x00340039, 0x00350039, 0x00360039, 0x00370039, 0x00380039, 0x00390039,
 ]);
+// @ts-expect-error: valid
 @lazy export const POW10_SMALL = memory.data<u64>([
   1,
   10,
@@ -37,41 +39,64 @@ const HAS_SIMD: bool = isDefined(XJB_SIMD) ? <bool>XJB_SIMD : ASC_FEATURE_SIMD;
 ]);
 
 // Fixed-point log significands shared by the dec-exp / binary-exp estimates below.
+// @ts-expect-error: valid
 @lazy @inline export const LOG10_2_SIGNIFICAND = 0x4D105; // ~(log10(2) * 2**20)
+// @ts-expect-error: valid
 @lazy export const LOG10_2_EXP = 20;
+// @ts-expect-error: valid
 @lazy @inline export const LOG2_POW10_SIGNIFICAND = 0x3526B; // ~(log2(10) * 2**16)
+// @ts-expect-error: valid
 @lazy export const LOG2_POW10_EXP = 16;
 
+// @ts-expect-error: valid
 @lazy @inline const DIV10_EXP = 10;
+// @ts-expect-error: valid
 @lazy const DIV10_SIG: u64 = (1 << DIV10_EXP) / 10 + 1;
+// @ts-expect-error: valid
 @lazy @inline const NEG10: u64 = (1 << 8) - 10;
 
+// @ts-expect-error: valid
 @lazy @inline const DIV100_EXP = 19;
+// @ts-expect-error: valid
 @lazy const DIV100_SIG: u64 = (1 << DIV100_EXP) / 100 + 1;
+// @ts-expect-error: valid
 @lazy @inline const NEG100: u64 = (1 << 16) - 100;
 
+// @ts-expect-error: valid
 @lazy @inline const DIV10K_EXP = 40;
+// @ts-expect-error: valid
 @lazy const DIV10K_SIG: u64 = ((<u64>1) << DIV10K_EXP) / 10000 + 1;
+// @ts-expect-error: valid
 @lazy @inline const NEG10K: u64 = ((<u64>1) << 32) - 10000;
 
+// @ts-expect-error: valid
 @lazy @inline export const BCD_ZEROS: u64 = 0x3030303030303030;
 
+// @ts-expect-error: valid
 @lazy @inline export const DOUBLE_EXP_OFFSET = 1075; // exp_bias(1023) + num_sig_bits(52)
+// @ts-expect-error: valid
 @lazy const DOUBLE_SIGNIFICAND_SIZE = 52; // explicit mantissa bits
+// @ts-expect-error: valid
 @lazy @inline export const DOUBLE_HIDDEN_BIT: u64 = (<u64>1) << DOUBLE_SIGNIFICAND_SIZE; // implicit leading 1
+// @ts-expect-error: valid
 @lazy export const DOUBLE_SIGNIFICAND_MASK: u64 = DOUBLE_HIDDEN_BIT - 1;
+// @ts-expect-error: valid
 @lazy @inline export const EXTRA_SHIFT = 6;
+// @ts-expect-error: valid
 @lazy export const BIASED_HALF: u64 = ((<u64>1) << 63) + 6;
+// @ts-expect-error: valid
 @lazy @inline const DOUBLE_MAX_DIGITS10 = 17;
 // Fixed notation when decExp (= decimal-point position - 1) is in [-6, 20].
+// @ts-expect-error: valid
 @lazy @inline export const MIN_FIXED_DEC_EXP = -6;
+// @ts-expect-error: valid
 @lazy export const MAX_FIXED_DEC_EXP = 20;
 
 // Compact pow10 (Dougall Johnson's method, ported from vitaut/zmij)
 // 10**i = top-128-bits(major[(i+10)/28] * minor[(i+10)%28]) minus a per-power round-down bit.
 
 // 23 full 128-bit anchors (hi, lo) spaced every 28 powers, covering 10**-303..10**313.
-// @ts-ignore: decorator
+// @ts-expect-error: valid
 @lazy @inline const POW10_MAJOR = memory.data<u64>([
   0xaf8e5410288e1b6f, 0x07ecf0ae5ee44dda, 0xb1442798f49ffb4a, 0x99cd11cfdf41779d,
   0xb2fe3f0b8599ef07, 0x861fa7e6dcb4aa15, 0xb4bca50b065abe63, 0x0fed077a756b53aa,
@@ -89,7 +114,7 @@ const HAS_SIMD: bool = isDefined(XJB_SIMD) ? <bool>XJB_SIMD : ASC_FEATURE_SIMD;
 
 // One round-down fixup bit per power: bit (i & 31) of word (i >> 5) is subtracted
 // from the reconstructed low limb. 20 words cover all 618 powers.
-// @ts-ignore: decorator
+// @ts-expect-error: valid
 @lazy @inline const POW10_FIXUPS = memory.data<u32>([
   0x0a4e363f, 0x00001840, 0x00006400, 0x24200040, 0x00000000,
   0x0c000000, 0x82c81380, 0x5e4ce01f, 0xd730f60f, 0x0000001b,
@@ -119,21 +144,31 @@ const HAS_SIMD: bool = isDefined(XJB_SIMD) ? <bool>XJB_SIMD : ASC_FEATURE_SIMD;
   0xfdc20d2b36ba7c3d
 ]);
 
+// @ts-expect-error: valid
 @lazy @inline export const SCRATCH = memory.data(128);
 
 // Shared results where the caller needs more than one return value.
+// @ts-expect-error: valid
 @lazy export let gPow10Hi: u64 = 0;
+// @ts-expect-error: valid
 @lazy let gBcdValue: u64 = 0;
+// @ts-expect-error: valid
 @lazy export let gDigHi: u64 = 0;
+// @ts-expect-error: valid
 @lazy export let gDigLo: u64 = 0;
+// @ts-expect-error: valid
 @lazy export let gDigNum: i32 = 0;
+// @ts-expect-error: valid
 @lazy export let gSig: i64 = 0;
+// @ts-expect-error: valid
 @lazy export let gExp: i32 = 0;
+// @ts-expect-error: valid
 @lazy export let gLastDigit: i32 = 0;
+// @ts-expect-error: valid
 @lazy export let gHasLastDigit: bool = false;
 
 // High 64 bits of the 128-bit product x * y. Matches umul128.
-// @ts-ignore: decorator
+// @ts-expect-error: valid
 @inline export function umul64hi(a: u64, b: u64): u64 {
   let a0 = a & 0xffffffff
   let a1 = a >> 32
@@ -515,6 +550,7 @@ function toBcd8(value: u64): i32 {
 }
 
 // Head/tail copies cover short strings without writing beyond the allocation.
+// @ts-expect-error: valid
 @inline function copy16(dst: usize, src: usize): void {
   if (HAS_SIMD) v128.store(dst, v128.load(src));
   else {
@@ -523,11 +559,13 @@ function toBcd8(value: u64): i32 {
   }
 }
 
+// @ts-expect-error: valid
 @inline function copy32(dst: usize, src: usize): void {
   copy16(dst, src);
   copy16(dst + 16, src + 16);
 }
 
+// @ts-expect-error: valid
 @inline function copyStringBytes(dst: usize, src: usize, size: usize): void {
   if (size > 64) memory.copy(dst, src, size);
   else if (size > 32) {
@@ -605,6 +643,7 @@ function utoa_dec_simple<T extends number>(buffer: usize, num: T, offset: usize)
   } while (num);
 }
 
+// @ts-expect-error: valid
 @inline function utoa32_dec_core(buffer: usize, num: u32, offset: usize): void {
   if (ASC_SHRINK_LEVEL >= 1) utoa_dec_simple<u32>(buffer, num, offset);
   else utoa32_dec_lut(buffer, num, offset);
@@ -612,6 +651,7 @@ function utoa_dec_simple<T extends number>(buffer: usize, num: T, offset: usize)
 
 // Exact small integers can be written into their final allocation. The callers
 // enforce the width-specific bounds where exact integer digits are shortest.
+// @ts-expect-error: valid
 @inline export function integerString(integer: i32): string {
   let negative = integer < 0;
   let magnitude = <u32>(negative ? -integer : integer);

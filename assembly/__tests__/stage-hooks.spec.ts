@@ -22,6 +22,7 @@ describe("digit kernel setup uses significands, not core checksums", () => {
 });
 
 describe("f64 digit kernel uses production fixed-width packing", () => {
+		// @ts-expect-error: valid
     gDigNum = 123;
     benchDigits64(1234567890123456);
     expect(gDigNum).toBe(123);

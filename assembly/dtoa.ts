@@ -11,19 +11,29 @@ import {
 
 // @ts-ignore: decorator
 @inline function setDecimalResult(integral: u64, one: u64, decExp: i32): void {
-  if (one == 10) {
+	if (one == 10) {
+		// @ts-expect-error: valid
     gSig = <i64>(integral + 1);
+    // @ts-expect-error: valid
     gLastDigit = 0;
+    // @ts-expect-error: valid
     gHasLastDigit = false;
   } else if (one == 0) {
+  // @ts-expect-error: valid
     gSig = <i64>integral;
+    // @ts-expect-error: valid
     gLastDigit = 0;
+    // @ts-expect-error: valid
     gHasLastDigit = false;
   } else {
+  // @ts-expect-error: valid
     gSig = <i64>integral;
+    // @ts-expect-error: valid
     gLastDigit = <i32>one;
+    // @ts-expect-error: valid
     gHasLastDigit = true;
   }
+  // @ts-expect-error: valid
   gExp = decExp;
 }
 
@@ -116,17 +126,25 @@ import {
 @inline export function normalizeDoubleShortest(): void {
   let full = <u64>gSig * 10 + <u64>(gHasLastDigit ? gLastDigit : 0);
   if (full >= 1000000000000000) {
+  	// @ts-expect-error: valid
     gSig = <i64>full;
+    // @ts-expect-error: valid
     --gExp;
+    // @ts-expect-error: valid
     gLastDigit = 0;
+    // @ts-expect-error: valid
     gHasLastDigit = false;
     return;
   }
   let scale = 16 - decimalLen15(full);
-  let mul = load<u64>(POW10_SMALL + (<usize>scale << 3));
+	let mul = load<u64>(POW10_SMALL + (<usize>scale << 3));
+	// @ts-expect-error: valid
   gSig = <i64>(full * mul);
+  // @ts-expect-error: valid
   gExp -= scale + 1;
+  // @ts-expect-error: valid
   gLastDigit = 0;
+  // @ts-expect-error: valid
   gHasLastDigit = false;
 }
 

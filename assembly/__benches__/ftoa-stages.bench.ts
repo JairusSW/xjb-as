@@ -11,6 +11,7 @@ const SIG_STORE = memory.data(16 * 8);
 const OPS: u64 = 100_000;
 
 function asciiBytes(samples: f32[]): u64 {
+	// @ts-ignore
   return u64(samples.map<string>((s) => s.toString()).join("").length);
 }
 

@@ -160,7 +160,9 @@ export function bench(
   const opsPerSecond = f64(ops * 1000) / elapsed;
   const nsPerOp = (elapsed * 1_000_000) / f64(ops);
 
-  let log = "   Completed benchmark in " + Math.round(elapsed).toString() +
+  // @ts-ignore
+	let log = "   Completed benchmark in " + Math.round(elapsed).toString() +
+	  // @ts-ignore
     "ms at " + Math.round(opsPerSecond).toString() + " ops/s (" +
     fixed2(nsPerOp) + " ns/op)";
 
@@ -168,6 +170,7 @@ export function bench(
   if (bytesPerOp > 0) {
     const totalBytes = bytesPerOp * ops;
     mbPerSec = f64(totalBytes) / (elapsed / 1000) / (1000 * 1000);
+    // @ts-ignore
     log += " @ " + Math.round(mbPerSec).toString() + "MB/s";
   }
 
@@ -180,11 +183,17 @@ export function bench(
     memRetainedBytes = retainedLiveBytes;
     const grew = (peakPages - baselinePages) * <u64>WASM_PAGE_SIZE;
     const netDelta: i64 = <i64>memRetainedBytes - <i64>memBaselineBytes;
+    // @ts-ignore
     log += "\n   mem: heapBase=" + memBaselineBytes.toString() +
+    // @ts-ignore
       " linearBase=" + (baselinePages * <u64>WASM_PAGE_SIZE).toString() +
+      // @ts-ignore
       " linearPeak=" + memPeakBytes.toString() +
+      // @ts-ignore
       " retained=" + memRetainedBytes.toString() +
+      // @ts-ignore
       " linearGrowth=+" + grew.toString() +
+      // @ts-ignore
       " net=" + netDelta.toString() +
       " collect+snapshot=" + fixed1(collectAndSnapshotMs) + "ms";
     log += "\n   retained heap delta: " + heapDetailJson;
@@ -238,19 +247,32 @@ function serializeResult(): string {
     '{"benchmarkSchemaVersion":3,"language":"' + r.language +
     '","description":"' + r.description +
     '","runtime":"' + r.runtime +
+    // @ts-ignore
     '","elapsed":' + r.elapsed.toString() +
+    // @ts-ignore
     ',"bytes":' + r.bytes.toString() +
+    // @ts-ignore
     ',"operations":' + r.operations.toString() +
     ',"features":' + features +
+    // @ts-ignore
     ',"nsPerOp":' + r.nsPerOp.toString() +
+    // @ts-ignore
     ',"opsPerSecond":' + r.opsPerSecond.toString() +
+    // @ts-ignore
     ',"mbps":' + r.mbps.toString() +
+    // @ts-ignore
     ',"gbps":' + r.gbps.toString() +
+    // @ts-ignore
     ',"memoryBaselineBytes":' + r.memoryBaselineBytes.toString() +
+    // @ts-ignore
     ',"memoryLinearBaselineBytes":' + r.memoryLinearBaselineBytes.toString() +
+    // @ts-ignore
     ',"memoryLinearPeakBytes":' + r.memoryLinearPeakBytes.toString() +
+    // @ts-ignore
     ',"memoryLinearGrowthBytes":' + r.memoryLinearGrowthBytes.toString() +
+    // @ts-ignore
     ',"memoryRetainedBytes":' + r.memoryRetainedBytes.toString() +
+    // @ts-ignore
     ',"memoryCollectAndSnapshotMs":' + r.memoryCollectAndSnapshotMs.toString() +
     ',"heapDetail":' + (r.heapDetail.length > 0 ? r.heapDetail : "{}") +
     "}"
@@ -263,6 +285,7 @@ function serializeResult(): string {
   const r = Math.round(v * 10) / 10;
   const whole = <i64>r;
   const frac = <i32>Math.abs(Math.round((r - <f64>whole) * 10));
+  // @ts-ignore
   return whole.toString() + "." + frac.toString();
 }
 
@@ -273,8 +296,11 @@ function serializeResult(): string {
   const s = <i64>Math.round(Math.abs(v) * 100); // value in hundredths
   const whole = s / 100;
   const frac = <i32>(s % 100);
+  // @ts-ignore
   if (frac == 0) return whole.toString();
+  // @ts-ignore
   if (frac % 10 == 0) return whole.toString() + "." + (frac / 10).toString();
+  // @ts-ignore
   return whole.toString() + "." + (frac < 10 ? "0" : "") + frac.toString();
 }
 

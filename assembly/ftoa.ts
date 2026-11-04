@@ -7,12 +7,18 @@ import {
   toDigits32, integerString
 } from "./xjb";
 
+// @ts-expect-error: valid
 @lazy @inline const FLOAT_EXP_OFFSET = 150; // exp_bias(127) + num_sig_bits(23)
+// @ts-expect-error: valid
 @lazy const FLOAT_SIGNIFICAND_SIZE = 23; // explicit mantissa bits
+// @ts-expect-error: valid
 @lazy @inline const FLOAT_HIDDEN_BIT: u64 = (<u64>1) << FLOAT_SIGNIFICAND_SIZE; // implicit leading 1
+// @ts-expect-error: valid
 @lazy const FLOAT_SIGNIFICAND_MASK: u32 = (<u32>1 << FLOAT_SIGNIFICAND_SIZE) - 1;
+// @ts-expect-error: valid
 @lazy @inline const FLOAT_BIT = 36; // xjb's fixed-point split for the f32 core
 // xjb's c1, ASCII offset stripped so the `one` digit comes out numeric.
+// @ts-expect-error: valid
 @lazy @inline const FLOAT_ONE_BIAS: u64 = ((<u64>1) << (FLOAT_BIT - 2)) - 7;
 
 export const FLOAT_MAX_DIGITS10 = 9;
@@ -156,9 +162,13 @@ export const FLOAT_MAX_DIGITS10 = 9;
     upDown = mUp > ((hi64 - (halfUlp >> 1)) >> FLOAT_BIT);
   }
 
+  // @ts-expect-error: valid
   gSig = <i64>mUp;
+  // @ts-expect-error: valid
   gExp = k;
+  // @ts-expect-error: valid
   gLastDigit = one;
+  // @ts-expect-error: valid
   gHasLastDigit = !upDown;
 }
 
@@ -199,9 +209,13 @@ export const FLOAT_MAX_DIGITS10 = 9;
     }
     let q = <i64>(<u64>decSig / 10);
     let last = <i32>(decSig - q * 10);
+    // @ts-expect-error: valid
     gSig = q;
+    // @ts-expect-error: valid
     gExp = decExp;
+    // @ts-expect-error: valid
     gLastDigit = last;
+    // @ts-expect-error: valid
     gHasLastDigit = last != 0;
   } else {
     if (neg) {
@@ -230,6 +244,7 @@ export const FLOAT_MAX_DIGITS10 = 9;
   let decExp = gExp + FLOAT_MAX_DIGITS10 - 2 + i32(hasExtraDigit);
 
   if (<u64>gSig < 1000000) {
+  	// @ts-expect-error: valid
     gSig = 10 * gSig + (hasLastDigit ? gLastDigit : 0);
     hasLastDigit = false;
     --decExp;

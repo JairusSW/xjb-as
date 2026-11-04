@@ -27,7 +27,9 @@ export function benchCoreDouble(value: f64): u64 {
     const expMask = 2047;
     const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
     if (!isNormal) {
+    		// @ts-expect-error: valid
         if (binExp != 0) { gSig = 0; return 0; } // NaN / Infinity: no decimal core work
+        // @ts-expect-error: valid
         if (binSig == 0) { gSig = 0; return 0; } // +/-0
         // subnormal (mirrors formatDouble)
         toDecimalDouble(binSig, 0, true);
@@ -46,7 +48,9 @@ export function benchCoreDoubleRaw(value: f64): u64 {
     const expMask = 2047;
     const isNormal = <u32>(binExp - 1) < <u32>(expMask - 1);
     if (!isNormal) {
+    		// @ts-expect-error: valid
         if (binExp != 0) { gSig = 0; return 0; } // NaN / Infinity: no decimal core work
+        // @ts-expect-error: valid
         if (binSig == 0) { gSig = 0; return 0; } // +/-0
         toDecimalDouble(binSig, 0, true);
     } else {
@@ -67,7 +71,8 @@ export function benchDigits64(sig: u64): u64 {
 // Setup-only checks: never run inside the timed digit loop.
 export function validateDigits64(sig: u64): void {
     if (sig >= 10000000000000000) throw new Error("invalid f64 digit-kernel input");
-    benchDigits64(sig);
+		benchDigits64(sig);
+		// @ts-ignore
     const expected = sig.toString().padStart(16, "0");
     for (let i = 0; i < 16; ++i) {
         const block = i < 8 ? gDigHi : gDigLo;
