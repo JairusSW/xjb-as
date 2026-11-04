@@ -2,14 +2,6 @@ MIT License
 
 Copyright (c) 2026 Jairus
 
-Portions derived from Żmij (https://github.com/vitaut/zmij),
-Copyright (c) 2025 Victor Zverovich, MIT License.
-
-Portions of the `f64` core and the vendored reference snapshot in `vendor/xjb`
-are derived from xjb (https://github.com/xjb714/xjb),
-Copyright (c) 2026 xjb714 and contributors, Apache License 2.0.
-See `LICENSE.Apache-2.0` and `NOTICE` for the additional terms and notices.
-
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
