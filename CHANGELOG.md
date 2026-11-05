@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- f32: read every power of ten from one direct 77-entry high-limb table instead
+  of branching between the shared cache and compact reconstruction. The shared
+  f64 highs are now a slice of that table, so the combined build grows by
+  220 bytes while an ftoa-only build shrinks by 634 bytes. Output is unchanged
+  (exhaustive binary32 check); `ftoa_buffered` is up to ~25% faster for large
+  or uniformly distributed exponents and ~8% faster for common magnitudes.
+- Keep freshly allocated result strings unmanaged until they are returned, so
+  `dtoa()`/`ftoa()` no longer set up a shadow-stack frame under GC runtimes
+  (177 bytes smaller with the incremental runtime; speed within noise).
+
 ## [1.0.0] - 2026-11-03
 
 ### Changed

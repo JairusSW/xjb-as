@@ -21,22 +21,30 @@ export function exactPower(index) {
 export function verifyPowers() {
   const majorTable = table("POW10_MAJOR");
   const fixups = table("POW10_FIXUPS");
-  const shared = table("POW10_SHARED");
-  if (majorTable.length !== 46 || fixups.length !== 20 || shared.length !== 53) {
+  const highs = table("POW10_HIGH");
+  const lows = table("POW10_LOW");
+  if (majorTable.length !== 46 || fixups.length !== 20 || highs.length !== 77 || lows.length !== 8) {
     throw new Error("power-table lengths changed; update the verifier with the layout");
   }
+  if (!/POW10_SHARED: usize = POW10_HIGH \+ \(17 << 3\)/.test(source)) {
+    throw new Error("POW10_SHARED must alias POW10_HIGH[17] (10^27)");
+  }
+  const shared = highs.slice(17);
 
-  // Shared highs cover powers 10^27..10^-17. Their rounding direction is
-  // important to the f32 path, even where the corresponding low is not stored.
-  for (let t = 17; t <= 61; ++t) {
-    const exact = exactPower(337 - t);
+  // Highs cover powers 10^44..10^-32 (index 44 - p), rounded up exactly when
+  // the truncated low limb is nonzero; the f32 path depends on that direction.
+  for (let j = 0; j < 77; ++j) {
+    const exact = exactPower(293 + 44 - j);
     const high = exact >> 64n;
     const low = exact & mask64;
-    if (shared[t - 17] !== high + BigInt(low !== 0n)) {
-      throw new Error(`shared high mismatch at t=${t}`);
+    if (highs[j] !== high + BigInt(low !== 0n)) {
+      throw new Error(`high mismatch for 10^${44 - j}`);
     }
-    if (t >= 45 && t <= 52 && shared[t] !== low) {
-      throw new Error(`shared low mismatch at t=${t}`);
+  }
+  // Lows for 10^-1..10^-8, read by computePow10 as POW10_LOW[t - 45].
+  for (let t = 45; t <= 52; ++t) {
+    if (lows[t - 45] !== (exactPower(337 - t) & mask64)) {
+      throw new Error(`low mismatch at t=${t}`);
     }
   }
 

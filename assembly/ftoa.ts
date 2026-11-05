@@ -1,8 +1,8 @@
-// ECMAScript-compatible f32 formatting using the shared compact power cache.
+// ECMAScript-compatible f32 formatting from a direct 64-bit power table.
 import {
-  BCD_ZEROS, MIN_FIXED_DEC_EXP, MAX_FIXED_DEC_EXP, POW10_SHARED, SCRATCH,
-  gPow10Hi, gDigHi, gDigNum, gSig, gExp,
-  gLastDigit, gHasLastDigit, computePow10Compact, writeUnpacked8, writeNaN,
+  BCD_ZEROS, MIN_FIXED_DEC_EXP, MAX_FIXED_DEC_EXP, POW10_HIGH, SCRATCH,
+  gDigHi, gDigNum, gSig, gExp,
+  gLastDigit, gHasLastDigit, writeUnpacked8, writeNaN,
   writeInfinity, writeExponent, scratchString, writeUInt16,
   toDigits32, integerString
 } from "./xjb";
@@ -133,13 +133,8 @@ export const FLOAT_MAX_DIGITS10 = 9;
     k = (expBin * 1233 - 512) >> 12;
     h = 37 + expBin + ((k * -1701 + (-1701)) >> 9);
   }
-  let pow10Hi: u64;
-  if (k >= -28 && k <= 16) {
-    pow10Hi = load<u64>(POW10_SHARED + (<usize>(28 + k) << 3));
-  } else {
-    let lo = computePow10Compact(292 - k);
-    pow10Hi = gPow10Hi + u64(lo != 0);
-  }
+  // k is in [-45, 31] for every finite f32; POW10_HIGH[45 + k] is 10^(-k-1).
+  let pow10Hi = load<u64>(POW10_HIGH + (<usize>(45 + k) << 3));
 
   // hi64 = (binSig * pow10Hi) >> (64 - h), split as >> 24 (folded into the
   // partial-product combine; exact since 64 - h >= 24) then >> (40 - h).
